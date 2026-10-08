@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  project-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify project structure
+        run: |
+          test -d backend
+          test -d frontend
+          test -d ml
+          test -d rag
+          test -d docs
+          test -d tests
+          test -d scripts
+          test -d docker
+          echo "Project structure verified successfully."
