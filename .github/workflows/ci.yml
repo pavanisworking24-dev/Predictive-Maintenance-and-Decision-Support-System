@@ -19,11 +19,11 @@ jobs:
       - name: Verify project structure
         run: |
           test -d backend
+          test -d docker
+          test -d docs
           test -d frontend
           test -d ml
           test -d rag
-          test -d docs
-          test -d tests
           test -d scripts
-          test -d docker
+          test -d tests
           echo "Project structure verified successfully."
