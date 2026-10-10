@@ -1,0 +1,502 @@
+openapi: 3.1.0
+
+info:
+  title: Conversational Predictive Maintenance API
+  version: 0.1.0
+  description: >
+    Initial REST API contract for the Conversational Predictive
+    Maintenance and Decision Support System. The platform uses
+    NASA C-MAPSS simulated engine data to estimate Remaining Useful
+    Life (RUL), assess risk, explain predictions, and provide
+    maintenance decision support. This contract describes the
+    planned API and does not imply every endpoint is implemented.
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development
+  - url: https://api.example.com/api/v1
+    description: Placeholder for future deployment
+
+tags:
+  - name: Machines
+    description: Machine inventory and machine details
+  - name: Sensor Readings
+    description: Historical sensor observations from the dataset
+  - name: Predictions
+    description: RUL predictions and prediction history
+  - name: Health Summary
+    description: Combined machine health and decision-support information
+
+paths:
+  /machines:
+    get:
+      tags: [Machines]
+      summary: List machines
+      operationId: listMachines
+      parameters:
+        - name: dataset_id
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [FD001, FD002, FD003, FD004]
+          description: Filter machines by C-MAPSS subset.
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Machine list retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MachineListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /machines/{machine_id}:
+    parameters:
+      - $ref: "#/components/parameters/MachineId"
+    get:
+      tags: [Machines]
+      summary: Get machine details
+      operationId: getMachine
+      responses:
+        "200":
+          description: Machine details retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Machine"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /machines/{machine_id}/sensor-readings:
+    parameters:
+      - $ref: "#/components/parameters/MachineId"
+    get:
+      tags: [Sensor Readings]
+      summary: Get historical sensor readings
+      operationId: getSensorReadings
+      description: >
+        Returns stored cycle-based observations from the C-MAPSS
+        dataset. This is not a live telemetry ingestion endpoint.
+      parameters:
+        - name: cycle_from
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+        - name: cycle_to
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+      responses:
+        "200":
+          description: Historical readings retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [machine_id, readings]
+                properties:
+                  machine_id:
+                    type: string
+                    format: uuid
+                  readings:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SensorReading"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /machines/{machine_id}/predictions:
+    parameters:
+      - $ref: "#/components/parameters/MachineId"
+    get:
+      tags: [Predictions]
+      summary: Get machine prediction history
+      operationId: getPredictionHistory
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        "200":
+          description: Prediction history retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [machine_id, predictions]
+                properties:
+                  machine_id:
+                    type: string
+                    format: uuid
+                  predictions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Prediction"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /predictions:
+    post:
+      tags: [Predictions]
+      summary: Generate a machine RUL prediction
+      operationId: createPrediction
+      description: >
+        Requests a prediction for a machine at a specified observed
+        cycle using an available model. The backend stores the result
+        and associated uncertainty and risk information when available.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PredictionRequest"
+      responses:
+        "201":
+          description: Prediction generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Prediction"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /machines/{machine_id}/health-summary:
+    parameters:
+      - $ref: "#/components/parameters/MachineId"
+    get:
+      tags: [Health Summary]
+      summary: Get the latest machine health summary
+      operationId: getHealthSummary
+      description: >
+        Returns a combined summary of the latest available RUL estimate,
+        uncertainty interval, risk assessment, and leading SHAP
+        contributors. Decision-support information is research-oriented
+        and based on simulated C-MAPSS data.
+      responses:
+        "200":
+          description: Health summary retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthSummary"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+components:
+  parameters:
+    MachineId:
+      name: machine_id
+      in: path
+      required: true
+      description: Internal machine UUID from the machines table.
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+    Machine:
+      type: object
+      required: [machine_id, machine_code, dataset_id, engine_id]
+      properties:
+        machine_id:
+          type: string
+          format: uuid
+        machine_code:
+          type: string
+          examples: ["FD001-E047"]
+        dataset_id:
+          type: string
+          enum: [FD001, FD002, FD003, FD004]
+        engine_id:
+          type: integer
+          minimum: 1
+        latest_cycle:
+          type: [integer, "null"]
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+
+    MachineListResponse:
+      type: object
+      required: [items, total, limit, offset]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Machine"
+        total:
+          type: integer
+          minimum: 0
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    SensorReading:
+      type: object
+      required: [cycle, operating_settings, sensors]
+      properties:
+        cycle:
+          type: integer
+          minimum: 1
+        operating_settings:
+          type: array
+          description: The three C-MAPSS operating settings.
+          minItems: 3
+          maxItems: 3
+          items:
+            type: number
+        sensors:
+          type: object
+          description: Sensor values keyed by sensor number.
+          additionalProperties:
+            type: number
+          examples:
+            - sensor_1: 518.67
+              sensor_2: 641.82
+        recorded_at:
+          type: [string, "null"]
+          format: date-time
+          description: Optional application timestamp; not supplied as real-world time by C-MAPSS.
+
+    PredictionRequest:
+      type: object
+      required: [machine_id, cycle]
+      properties:
+        machine_id:
+          type: string
+          format: uuid
+        cycle:
+          type: integer
+          minimum: 1
+          description: Observed cycle at which to estimate RUL.
+        model_version_id:
+          type: [string, "null"]
+          format: uuid
+          description: Optional requested model version; server selects the active model if omitted.
+
+    Prediction:
+      type: object
+      required:
+        - prediction_id
+        - machine_id
+        - cycle
+        - predicted_rul
+        - model_version
+        - created_at
+      properties:
+        prediction_id:
+          type: string
+          format: uuid
+        machine_id:
+          type: string
+          format: uuid
+        cycle:
+          type: integer
+          minimum: 1
+        predicted_rul:
+          type: number
+          minimum: 0
+          description: Estimated remaining useful life in cycles.
+        rul_interval:
+          oneOf:
+            - $ref: "#/components/schemas/RULInterval"
+            - type: "null"
+        model_version:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    RULInterval:
+      type: object
+      required: [lower_bound, upper_bound, coverage_level]
+      properties:
+        lower_bound:
+          type: number
+          minimum: 0
+        upper_bound:
+          type: number
+          minimum: 0
+        coverage_level:
+          type: number
+          exclusiveMinimum: 0
+          exclusiveMaximum: 1
+          description: Target conformal prediction coverage, for example 0.90.
+        at_cap:
+          type: boolean
+          description: True when the displayed RUL is subject to the training-label cap convention.
+
+    HealthSummary:
+      type: object
+      required:
+        - machine_id
+        - dataset_id
+        - cycle
+        - model_version
+        - rul
+        - risk
+        - generated_at
+      properties:
+        machine_id:
+          type: string
+          format: uuid
+        dataset_id:
+          type: string
+          enum: [FD001, FD002, FD003, FD004]
+        cycle:
+          type: integer
+          minimum: 1
+        model_version:
+          type: string
+        rul:
+          type: object
+          required: [point]
+          properties:
+            point:
+              type: number
+              minimum: 0
+            interval:
+              oneOf:
+                - $ref: "#/components/schemas/RULInterval"
+                - type: "null"
+            at_cap:
+              type: boolean
+        rul_threshold_probability:
+          type: object
+          description: >
+            Model-derived estimate of P(RUL <= horizon_cycles) using
+            calibration residuals. This is not ground-truth failure probability.
+          required: [horizon_cycles, value, method]
+          properties:
+            horizon_cycles:
+              type: integer
+              minimum: 1
+            value:
+              type: number
+              minimum: 0
+              maximum: 1
+            method:
+              type: string
+              examples: ["calibration-residual estimate"]
+        risk:
+          type: object
+          required: [level, thresholds_version]
+          properties:
+            level:
+              type: string
+              enum: [LOW, MEDIUM, HIGH]
+            thresholds_version:
+              type: string
+        trend:
+          type: string
+          description: Brief description of recent RUL or sensor trend, when available.
+        top_contributors:
+          type: array
+          items:
+            type: object
+            required: [feature, contribution]
+            properties:
+              feature:
+                type: string
+              contribution:
+                type: number
+        recommended_investigation:
+          type: array
+          items:
+            type: string
+          description: Research-oriented guidance, not an authoritative maintenance procedure.
+        generated_at:
+          type: string
+          format: date-time
+
+    Error:
+      type: object
+      required: [error, message]
+      properties:
+        error:
+          type: string
+          examples: ["NOT_FOUND"]
+        message:
+          type: string
+        details:
+          type: [object, "null"]
+          additionalProperties: true
+
+  responses:
+    BadRequest:
+      description: Invalid request parameters
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Requested machine or resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ValidationError:
+      description: Request body failed validation
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    InternalServerError:
+      description: Unexpected server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
