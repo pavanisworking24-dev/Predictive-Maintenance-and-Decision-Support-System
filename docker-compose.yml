@@ -1,0 +1,25 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: predictive-maintenance-postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: predictive_maintenance
+      POSTGRES_USER: pm_user
+      POSTGRES_PASSWORD: pm_password
+
+    ports:
+      - "5433:5432"
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pm_user -d predictive_maintenance"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:
