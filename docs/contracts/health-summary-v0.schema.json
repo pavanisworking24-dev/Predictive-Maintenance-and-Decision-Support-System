@@ -1,0 +1,162 @@
+
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "health-summary-v0.schema.json",
+  "title": "Machine Health Summary v0",
+  "description": "Research-oriented machine health summary based on simulated NASA C-MAPSS data.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "machine_id",
+    "dataset_id",
+    "cycle",
+    "model_version",
+    "rul",
+    "generated_at",
+    "disclaimer"
+  ],
+  "properties": {
+    "machine_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Readable machine identifier, not the internal database UUID.",
+      "examples": ["FD001-E047"]
+    },
+    "dataset_id": {
+      "type": "string",
+      "enum": ["FD001", "FD002", "FD003", "FD004"]
+    },
+    "cycle": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Observed operating-cycle index, not a timestamp."
+    },
+    "model_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "rul": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["estimate", "at_cap"],
+      "properties": {
+        "estimate": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Estimated remaining useful life in cycles."
+        },
+        "interval": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "lower_bound",
+            "upper_bound",
+            "coverage_level"
+          ],
+          "properties": {
+            "lower_bound": {
+              "type": "number",
+              "minimum": 0
+            },
+            "upper_bound": {
+              "type": "number",
+              "minimum": 0
+            },
+            "coverage_level": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "exclusiveMaximum": 1,
+              "description": "Nominal conformal coverage level; not a per-prediction guarantee."
+            }
+          },
+          "description": "Omit when a calibrated interval is unavailable."
+        },
+        "at_cap": {
+          "type": "boolean",
+          "description": "Whether the estimate is at the configured RUL cap."
+        }
+      }
+    },
+    "rul_threshold_probability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["threshold_cycles", "probability"],
+      "properties": {
+        "threshold_cycles": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "probability": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Estimated probability that RUL is less than or equal to threshold_cycles; not automatically a real-world failure probability."
+        }
+      },
+      "description": "Omit until the estimation method is implemented and evaluated."
+    },
+    "risk_level": {
+      "type": "string",
+      "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
+      "description": "Configured risk category, included when risk classification is implemented."
+    },
+    "trend": {
+      "type": "string",
+      "enum": ["improving", "stable", "degrading", "unknown"],
+      "description": "Omit when trend analysis is unavailable."
+    },
+    "top_contributors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["feature", "shap_value"],
+        "properties": {
+          "feature": {
+            "type": "string",
+            "minLength": 1
+          },
+          "shap_value": {
+            "type": "number",
+            "description": "SHAP attribution for the specified feature and explained model output."
+          },
+          "effect_on_rul": {
+            "type": "string",
+            "enum": [
+              "increases_estimated_rul",
+              "decreases_estimated_rul",
+              "implementation_defined"
+            ],
+            "description": "Optional; include only when the direction mapping is implemented and validated."
+          }
+        }
+      },
+      "description": "Omit when SHAP results are unavailable."
+    },
+    "recommendation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary", "rule_id"],
+      "properties": {
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rule_id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "description": "Optional research-oriented investigation suggestion from a documented decision rule."
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Application-generated UTC timestamp in ISO 8601 format."
+    },
+    "disclaimer": {
+      "type": "string",
+      "const": "Research-oriented decision support based on simulated C-MAPSS data and retrieved technical knowledge."
+    }
+  }
+}
