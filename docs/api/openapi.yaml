@@ -1,15 +1,19 @@
-openapi: 3.1.0
+<<<<<<< Updated upstream
+=======
+
+>>>>>>> Stashed changes
+openapi: 3.0.3
 
 info:
   title: Conversational Predictive Maintenance API
   version: 0.1.0
   description: >
-    Initial REST API contract for the Conversational Predictive
-    Maintenance and Decision Support System. The platform uses
-    NASA C-MAPSS simulated engine data to estimate Remaining Useful
-    Life (RUL), assess risk, explain predictions, and provide
-    maintenance decision support. This contract describes the
-    planned API and does not imply every endpoint is implemented.
+    REST API contract for the Conversational Predictive Maintenance and
+    Decision Support System. The platform uses NASA C-MAPSS simulated
+    engine data to estimate Remaining Useful Life (RUL), assess risk,
+    explain predictions, and provide research-oriented maintenance
+    decision support. This contract describes the planned API and does
+    not imply that every endpoint is implemented.
 
 servers:
   - url: http://localhost:8000/api/v1
@@ -21,7 +25,7 @@ tags:
   - name: Machines
     description: Machine inventory and machine details
   - name: Sensor Readings
-    description: Historical sensor observations from the dataset
+    description: Historical cycle-based sensor observations
   - name: Predictions
     description: RUL predictions and prediction history
   - name: Health Summary
@@ -38,9 +42,8 @@ paths:
           in: query
           required: false
           schema:
-            type: string
-            enum: [FD001, FD002, FD003, FD004]
-          description: Filter machines by C-MAPSS subset.
+            $ref: "#/components/schemas/DatasetId"
+          description: Filter machines by C-MAPSS dataset subset.
         - name: limit
           in: query
           required: false
@@ -95,8 +98,8 @@ paths:
       summary: Get historical sensor readings
       operationId: getSensorReadings
       description: >
-        Returns stored cycle-based observations from the C-MAPSS
-        dataset. This is not a live telemetry ingestion endpoint.
+        Returns stored cycle-based observations from C-MAPSS.
+        This is not a live telemetry ingestion endpoint.
       parameters:
         - name: cycle_from
           in: query
@@ -124,16 +127,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                required: [machine_id, readings]
-                properties:
-                  machine_id:
-                    type: string
-                    format: uuid
-                  readings:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/SensorReading"
+                $ref: "#/components/schemas/SensorReadingListResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
@@ -163,16 +157,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                required: [machine_id, predictions]
-                properties:
-                  machine_id:
-                    type: string
-                    format: uuid
-                  predictions:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/Prediction"
+                $ref: "#/components/schemas/PredictionListResponse"
         "404":
           $ref: "#/components/responses/NotFound"
         "500":
@@ -184,9 +169,11 @@ paths:
       summary: Generate a machine RUL prediction
       operationId: createPrediction
       description: >
-        Requests a prediction for a machine at a specified observed
-        cycle using an available model. The backend stores the result
-        and associated uncertainty and risk information when available.
+        Requests an RUL prediction for a registered machine at a specified
+        observed cycle. The backend uses the available model and its
+        preprocessing pipeline. The result is stored when persistence
+        is configured. Uncertainty and risk information are included
+        only when available.
       requestBody:
         required: true
         content:
@@ -208,6 +195,12 @@ paths:
           $ref: "#/components/responses/ValidationError"
         "500":
           $ref: "#/components/responses/InternalServerError"
+        "503":
+          description: Prediction service or model is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /machines/{machine_id}/health-summary:
     parameters:
@@ -217,10 +210,12 @@ paths:
       summary: Get the latest machine health summary
       operationId: getHealthSummary
       description: >
-        Returns a combined summary of the latest available RUL estimate,
-        uncertainty interval, risk assessment, and leading SHAP
-        contributors. Decision-support information is research-oriented
-        and based on simulated C-MAPSS data.
+        Returns the latest available RUL estimate and, when implemented,
+        its conformal prediction interval, risk level, trend, SHAP
+        contributors, threshold estimate, and decision-support
+        recommendation. Optional fields are omitted when unavailable.
+        This is research-oriented decision support based on simulated
+        C-MAPSS data and retrieved technical knowledge.
       responses:
         "200":
           description: Health summary retrieved successfully
@@ -239,37 +234,51 @@ components:
       name: machine_id
       in: path
       required: true
-      description: Internal machine UUID from the machines table.
+      description: >
+        Public readable machine identifier, for example FD001-E047.
+        The database internal UUID is not exposed as this identifier.
       schema:
         type: string
-        format: uuid
+        minLength: 1
+        maxLength: 50
+        pattern: "^[A-Za-z0-9_-]+$"
+        example: FD001-E047
 
   schemas:
+    DatasetId:
+      type: string
+      enum: [FD001, FD002, FD003, FD004]
+
     Machine:
       type: object
-      required: [machine_id, machine_code, dataset_id, engine_id]
+      additionalProperties: false
+      required:
+        - machine_id
+        - dataset_id
+        - engine_id
       properties:
         machine_id:
           type: string
-          format: uuid
-        machine_code:
-          type: string
-          examples: ["FD001-E047"]
+          description: Public readable machine identifier.
+          example: FD001-E047
         dataset_id:
-          type: string
-          enum: [FD001, FD002, FD003, FD004]
+          $ref: "#/components/schemas/DatasetId"
         engine_id:
           type: integer
           minimum: 1
+          description: Engine identifier within the dataset subset.
         latest_cycle:
-          type: [integer, "null"]
+          type: integer
           minimum: 1
+          description: Most recent available cycle, when readings exist.
         created_at:
           type: string
           format: date-time
+          description: Application-generated UTC creation timestamp.
 
     MachineListResponse:
       type: object
+      additionalProperties: false
       required: [items, total, limit, offset]
       properties:
         items:
@@ -281,16 +290,20 @@ components:
           minimum: 0
         limit:
           type: integer
+          minimum: 1
         offset:
           type: integer
+          minimum: 0
 
     SensorReading:
       type: object
+      additionalProperties: false
       required: [cycle, operating_settings, sensors]
       properties:
         cycle:
           type: integer
           minimum: 1
+          description: Observed engine cycle, not a wall-clock timestamp.
         operating_settings:
           type: array
           description: The three C-MAPSS operating settings.
@@ -300,35 +313,60 @@ components:
             type: number
         sensors:
           type: object
-          description: Sensor values keyed by sensor number.
+          description: Sensor values keyed by sensor name.
+          minProperties: 1
           additionalProperties:
             type: number
-          examples:
-            - sensor_1: 518.67
-              sensor_2: 641.82
+          example:
+            sensor_1: 518.67
+            sensor_2: 641.82
         recorded_at:
-          type: [string, "null"]
+          type: string
           format: date-time
-          description: Optional application timestamp; not supplied as real-world time by C-MAPSS.
+          nullable: true
+          description: >
+            Optional application ingestion timestamp. C-MAPSS does not
+            provide a real-world timestamp for each observation.
+
+    SensorReadingListResponse:
+      type: object
+      additionalProperties: false
+      required: [machine_id, readings]
+      properties:
+        machine_id:
+          type: string
+          example: FD001-E047
+        readings:
+          type: array
+          items:
+            $ref: "#/components/schemas/SensorReading"
 
     PredictionRequest:
       type: object
+      additionalProperties: false
       required: [machine_id, cycle]
       properties:
         machine_id:
           type: string
-          format: uuid
+          example: FD001-E047
+          description: Public readable machine identifier.
         cycle:
           type: integer
           minimum: 1
-          description: Observed cycle at which to estimate RUL.
+          description: >
+            Observed cycle at which to estimate RUL. Required sensor
+            readings and feature history must be available.
         model_version_id:
-          type: [string, "null"]
+          type: string
           format: uuid
-          description: Optional requested model version; server selects the active model if omitted.
+          nullable: true
+          description: >
+            Optional internal model-version UUID. If omitted, the server
+            selects the configured active model version.
 
     Prediction:
       type: object
+      additionalProperties: false
       required:
         - prediction_id
         - machine_id
@@ -339,10 +377,11 @@ components:
       properties:
         prediction_id:
           type: string
-          format: uuid
+          description: Identifier for the prediction record.
+          example: pred_001
         machine_id:
           type: string
-          format: uuid
+          example: FD001-E047
         cycle:
           type: integer
           minimum: 1
@@ -351,17 +390,21 @@ components:
           minimum: 0
           description: Estimated remaining useful life in cycles.
         rul_interval:
-          oneOf:
+          allOf:
             - $ref: "#/components/schemas/RULInterval"
-            - type: "null"
+          description: >
+            Optional prediction interval. Omit when unavailable.
         model_version:
           type: string
+          description: Version of the model used for this prediction.
         created_at:
           type: string
           format: date-time
+          description: Application-generated UTC prediction timestamp.
 
     RULInterval:
       type: object
+      additionalProperties: false
       required: [lower_bound, upper_bound, coverage_level]
       properties:
         lower_bound:
@@ -372,128 +415,257 @@ components:
           minimum: 0
         coverage_level:
           type: number
-          exclusiveMinimum: 0
-          exclusiveMaximum: 1
-          description: Target conformal prediction coverage, for example 0.90.
+          minimum: 0
+          maximum: 1
+          description: >
+            Nominal conformal coverage level, such as 0.90. The application
+            must enforce a value strictly greater than 0 and strictly less
+            than 1. This is not a per-prediction coverage guarantee.
+      description: >
+        The application must validate that upper_bound is greater than
+        or equal to lower_bound.
+
+    PredictionListResponse:
+      type: object
+      additionalProperties: false
+      required: [machine_id, predictions]
+      properties:
+        machine_id:
+          type: string
+          example: FD001-E047
+        predictions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Prediction"
+
+    RULEstimate:
+      type: object
+      additionalProperties: false
+      required: [estimate, at_cap]
+      properties:
+        estimate:
+          type: number
+          minimum: 0
+          description: Estimated remaining useful life in cycles.
+        interval:
+          allOf:
+            - $ref: "#/components/schemas/RULInterval"
+          description: >
+            Optional conformal prediction interval. Omit when unavailable.
         at_cap:
           type: boolean
-          description: True when the displayed RUL is subject to the training-label cap convention.
+          description: >
+            True when the displayed estimate is subject to the configured
+            RUL label cap. This does not mean the actual RUL equals the cap.
+
+    RULThresholdProbability:
+      type: object
+      additionalProperties: false
+      required: [threshold_cycles, probability]
+      properties:
+        threshold_cycles:
+          type: integer
+          minimum: 1
+          description: RUL threshold used for the estimate.
+        probability:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: >
+            Estimated probability that RUL is at or below threshold_cycles.
+            This is not a real-world failure probability. Include only
+            after the estimation method has been implemented and evaluated.
+
+    SHAPContributor:
+      type: object
+      additionalProperties: false
+      required: [feature, shap_value]
+      properties:
+        feature:
+          type: string
+          description: >
+            Model input feature, including raw sensors and engineered
+            features such as rolling statistics.
+        shap_value:
+          type: number
+          description: SHAP contribution in the explanation space.
+        effect_on_rul:
+          type: string
+          enum:
+            - increases_estimated_rul
+            - decreases_estimated_rul
+            - direction_not_mapped
+          description: >
+            Include a directional interpretation only when its mapping
+            has been implemented and validated.
+
+    Recommendation:
+      type: object
+      additionalProperties: false
+      required: [summary, rule_id]
+      properties:
+        summary:
+          type: string
+          minLength: 1
+          description: Concise research-oriented decision-support guidance.
+        rule_id:
+          type: string
+          minLength: 1
+          description: Identifier of the decision rule that produced the guidance.
 
     HealthSummary:
       type: object
+      additionalProperties: false
       required:
         - machine_id
         - dataset_id
         - cycle
         - model_version
         - rul
-        - risk
         - generated_at
+        - disclaimer
       properties:
         machine_id:
           type: string
-          format: uuid
+          example: FD001-E047
+          description: Public readable machine identifier.
         dataset_id:
-          type: string
-          enum: [FD001, FD002, FD003, FD004]
+          $ref: "#/components/schemas/DatasetId"
         cycle:
           type: integer
           minimum: 1
+          description: Observed cycle for this summary.
         model_version:
           type: string
+          minLength: 1
+          description: Model version used for the RUL estimate.
+<<<<<<< Updated upstream
+        rul:
+          $ref: "#/components/schemas/RULEstimate"
+=======
+        
         rul:
           type: object
-          required: [point]
+          additionalProperties: false
+          required:
+            - estimate
+            - at_cap
           properties:
-            point:
+            estimate:
               type: number
               minimum: 0
+              description: Estimated remaining useful life in cycles.
             interval:
-              oneOf:
-                - $ref: "#/components/schemas/RULInterval"
-                - type: "null"
+              $ref: "#/components/schemas/RULInterval"
+              description: Omit when the interval is unavailable.
             at_cap:
               type: boolean
+              description: >
+                True when the displayed estimate is subject to the configured
+                RUL label cap. It does not mean actual RUL equals the cap.
+
+>>>>>>> Stashed changes
         rul_threshold_probability:
-          type: object
+          allOf:
+            - $ref: "#/components/schemas/RULThresholdProbability"
+          description: Optional; omit when unavailable.
+        risk_level:
+          type: string
+          enum: [LOW, MEDIUM, HIGH]
           description: >
-            Model-derived estimate of P(RUL <= horizon_cycles) using
-            calibration residuals. This is not ground-truth failure probability.
-          required: [horizon_cycles, value, method]
-          properties:
-            horizon_cycles:
-              type: integer
-              minimum: 1
-            value:
-              type: number
-              minimum: 0
-              maximum: 1
-            method:
-              type: string
-              examples: ["calibration-residual estimate"]
-        risk:
-          type: object
-          required: [level, thresholds_version]
-          properties:
-            level:
-              type: string
-              enum: [LOW, MEDIUM, HIGH]
-            thresholds_version:
-              type: string
+            Risk band from the configured risk rules. Include only when
+            risk assessment has been implemented and is available.
         trend:
           type: string
-          description: Brief description of recent RUL or sensor trend, when available.
+          description: Brief recent RUL or sensor trend, when available.
+<<<<<<< Updated upstream
         top_contributors:
           type: array
+          description: >
+            Leading SHAP contributors, when a valid explanation is available.
+            SHAP describes model behavior, not physical causation.
+          items:
+            $ref: "#/components/schemas/SHAPContributor"
+=======
+        
+        top_contributors:
+          type: array
+          description: Optional SHAP contributors, omitted when explanations are unavailable.
           items:
             type: object
-            required: [feature, contribution]
+            additionalProperties: false
+            required:
+              - feature
+              - shap_value
             properties:
               feature:
                 type: string
-              contribution:
+                minLength: 1
+                description: Name of the sensor or engineered feature.
+              shap_value:
                 type: number
-        recommended_investigation:
-          type: array
-          items:
-            type: string
-          description: Research-oriented guidance, not an authoritative maintenance procedure.
+                description: SHAP value for this feature.
+              effect_on_rul:
+                type: string
+                enum:
+                  - increases_estimated_rul
+                  - decreases_estimated_rul
+                description: Optional interpreted effect on estimated RUL; include only when validated.
+
+>>>>>>> Stashed changes
+        recommendation:
+          allOf:
+            - $ref: "#/components/schemas/Recommendation"
+          description: Optional decision-support recommendation.
         generated_at:
           type: string
           format: date-time
+          description: Application-generated UTC timestamp for this summary.
+        disclaimer:
+          type: string
+          description: Required research-use disclaimer.
+          example: >
+            Research-oriented decision support based on simulated C-MAPSS
+            data and retrieved technical knowledge.
 
     Error:
       type: object
+      additionalProperties: false
       required: [error, message]
       properties:
         error:
           type: string
-          examples: ["NOT_FOUND"]
+          example: NOT_FOUND
         message:
           type: string
         details:
-          type: [object, "null"]
+          type: object
+          nullable: true
           additionalProperties: true
+          description: Optional structured error details.
 
   responses:
     BadRequest:
-      description: Invalid request parameters
+      description: Invalid request parameters or inconsistent input
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+
     NotFound:
-      description: Requested machine or resource not found
+      description: Requested machine or resource was not found
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+
     ValidationError:
       description: Request body failed validation
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+
     InternalServerError:
       description: Unexpected server error
       content:
