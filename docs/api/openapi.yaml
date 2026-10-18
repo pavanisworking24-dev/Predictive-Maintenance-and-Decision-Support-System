@@ -1,7 +1,3 @@
-<<<<<<< Updated upstream
-=======
-
->>>>>>> Stashed changes
 openapi: 3.0.3
 
 info:
@@ -513,6 +509,7 @@ components:
           minLength: 1
           description: Identifier of the decision rule that produced the guidance.
 
+    
     HealthSummary:
       type: object
       additionalProperties: false
@@ -539,11 +536,6 @@ components:
           type: string
           minLength: 1
           description: Model version used for the RUL estimate.
-<<<<<<< Updated upstream
-        rul:
-          $ref: "#/components/schemas/RULEstimate"
-=======
-        
         rul:
           type: object
           additionalProperties: false
@@ -556,18 +548,48 @@ components:
               minimum: 0
               description: Estimated remaining useful life in cycles.
             interval:
-              $ref: "#/components/schemas/RULInterval"
+              type: object
+              additionalProperties: false
+              required:
+                - lower_bound
+                - upper_bound
+                - coverage_level
+              properties:
+                lower_bound:
+                  type: number
+                  minimum: 0
+                upper_bound:
+                  type: number
+                  minimum: 0
+                coverage_level:
+                  type: number
+                  exclusiveMinimum: 0
+                  exclusiveMaximum: 1
+                  description: Nominal conformal coverage, not a per-prediction guarantee.
               description: Omit when the interval is unavailable.
             at_cap:
               type: boolean
               description: >
                 True when the displayed estimate is subject to the configured
                 RUL label cap. It does not mean actual RUL equals the cap.
-
->>>>>>> Stashed changes
         rul_threshold_probability:
-          allOf:
-            - $ref: "#/components/schemas/RULThresholdProbability"
+          type: object
+          additionalProperties: false
+          required:
+            - threshold_cycles
+            - probability
+          properties:
+            threshold_cycles:
+              type: integer
+              minimum: 1
+            probability:
+              type: number
+              minimum: 0
+              maximum: 1
+              description: >
+                Estimated probability that RUL is at or below threshold_cycles.
+                This is not a real-world failure probability. Include only
+                after the estimation method has been implemented and evaluated.
           description: Optional; omit when unavailable.
         risk_level:
           type: string
@@ -578,19 +600,11 @@ components:
         trend:
           type: string
           description: Brief recent RUL or sensor trend, when available.
-<<<<<<< Updated upstream
         top_contributors:
           type: array
           description: >
             Leading SHAP contributors, when a valid explanation is available.
             SHAP describes model behavior, not physical causation.
-          items:
-            $ref: "#/components/schemas/SHAPContributor"
-=======
-        
-        top_contributors:
-          type: array
-          description: Optional SHAP contributors, omitted when explanations are unavailable.
           items:
             type: object
             additionalProperties: false
@@ -604,18 +618,31 @@ components:
                 description: Name of the sensor or engineered feature.
               shap_value:
                 type: number
-                description: SHAP value for this feature.
+                description: SHAP contribution in the explanation space.
               effect_on_rul:
                 type: string
                 enum:
                   - increases_estimated_rul
                   - decreases_estimated_rul
-                description: Optional interpreted effect on estimated RUL; include only when validated.
-
->>>>>>> Stashed changes
+                  - direction_not_mapped
+                description: >
+                  Include only when the directional interpretation has
+                  been implemented and validated.
         recommendation:
-          allOf:
-            - $ref: "#/components/schemas/Recommendation"
+          type: object
+          additionalProperties: false
+          required:
+            - summary
+            - rule_id
+          properties:
+            summary:
+              type: string
+              minLength: 1
+              description: Concise research-oriented decision-support guidance.
+            rule_id:
+              type: string
+              minLength: 1
+              description: Identifier of the decision rule that produced the guidance.
           description: Optional decision-support recommendation.
         generated_at:
           type: string
@@ -627,48 +654,3 @@ components:
           example: >
             Research-oriented decision support based on simulated C-MAPSS
             data and retrieved technical knowledge.
-
-    Error:
-      type: object
-      additionalProperties: false
-      required: [error, message]
-      properties:
-        error:
-          type: string
-          example: NOT_FOUND
-        message:
-          type: string
-        details:
-          type: object
-          nullable: true
-          additionalProperties: true
-          description: Optional structured error details.
-
-  responses:
-    BadRequest:
-      description: Invalid request parameters or inconsistent input
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/Error"
-
-    NotFound:
-      description: Requested machine or resource was not found
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/Error"
-
-    ValidationError:
-      description: Request body failed validation
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/Error"
-
-    InternalServerError:
-      description: Unexpected server error
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/Error"
