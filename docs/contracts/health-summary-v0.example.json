@@ -1,0 +1,34 @@
+{
+  "machine_id": "FD001-E047",
+  "dataset_id": "FD001",
+  "cycle": 187,
+  "model_version": "xgboost-v0",
+  "rul": {
+    "estimate": 18,
+    "interval": {
+      "lower_bound": 14,
+      "upper_bound": 23,
+      "coverage_level": 0.9
+    },
+    "at_cap": false
+  },
+  "rul_threshold_probability": {
+    "threshold_cycles": 30,
+    "probability": 0.81
+  },
+  "risk_level": "HIGH",
+  "trend": "degrading",
+  "top_contributors": [
+    {
+      "feature": "sensor_11_rolling_mean_5",
+      "shap_value": 2.4,
+      "effect_on_rul": "decreases_estimated_rul"
+    }
+  ],
+  "recommendation": {
+    "summary": "Review relevant sensor trends and investigate the associated subsystem using approved procedures.",
+    "rule_id": "HIGH_RISK_SENSOR_PATTERN_01"
+  },
+  "generated_at": "2026-10-14T10:30:00Z",
+  "disclaimer": "Research-oriented decision support based on simulated C-MAPSS data and retrieved technical knowledge."
+}
