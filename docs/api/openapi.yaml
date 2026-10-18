@@ -1,3 +1,7 @@
+<<<<<<< Updated upstream
+=======
+
+>>>>>>> Stashed changes
 openapi: 3.0.3
 
 info:
@@ -535,8 +539,32 @@ components:
           type: string
           minLength: 1
           description: Model version used for the RUL estimate.
+<<<<<<< Updated upstream
         rul:
           $ref: "#/components/schemas/RULEstimate"
+=======
+        
+        rul:
+          type: object
+          additionalProperties: false
+          required:
+            - estimate
+            - at_cap
+          properties:
+            estimate:
+              type: number
+              minimum: 0
+              description: Estimated remaining useful life in cycles.
+            interval:
+              $ref: "#/components/schemas/RULInterval"
+              description: Omit when the interval is unavailable.
+            at_cap:
+              type: boolean
+              description: >
+                True when the displayed estimate is subject to the configured
+                RUL label cap. It does not mean actual RUL equals the cap.
+
+>>>>>>> Stashed changes
         rul_threshold_probability:
           allOf:
             - $ref: "#/components/schemas/RULThresholdProbability"
@@ -550,6 +578,7 @@ components:
         trend:
           type: string
           description: Brief recent RUL or sensor trend, when available.
+<<<<<<< Updated upstream
         top_contributors:
           type: array
           description: >
@@ -557,6 +586,33 @@ components:
             SHAP describes model behavior, not physical causation.
           items:
             $ref: "#/components/schemas/SHAPContributor"
+=======
+        
+        top_contributors:
+          type: array
+          description: Optional SHAP contributors, omitted when explanations are unavailable.
+          items:
+            type: object
+            additionalProperties: false
+            required:
+              - feature
+              - shap_value
+            properties:
+              feature:
+                type: string
+                minLength: 1
+                description: Name of the sensor or engineered feature.
+              shap_value:
+                type: number
+                description: SHAP value for this feature.
+              effect_on_rul:
+                type: string
+                enum:
+                  - increases_estimated_rul
+                  - decreases_estimated_rul
+                description: Optional interpreted effect on estimated RUL; include only when validated.
+
+>>>>>>> Stashed changes
         recommendation:
           allOf:
             - $ref: "#/components/schemas/Recommendation"
