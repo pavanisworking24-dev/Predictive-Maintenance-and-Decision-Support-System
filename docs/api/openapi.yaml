@@ -192,11 +192,7 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
         "503":
-          description: Prediction service or model is unavailable
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
+          $ref: "#/components/responses/ServiceUnavailable"
 
   /machines/{machine_id}/health-summary:
     parameters:
@@ -360,6 +356,30 @@ components:
             Optional internal model-version UUID. If omitted, the server
             selects the configured active model version.
 
+    RULInterval:
+      type: object
+      additionalProperties: false
+      description: >
+        Conformal prediction interval. The application must validate
+        that upper_bound is greater than or equal to lower_bound.
+      required: [lower_bound, upper_bound, coverage_level]
+      properties:
+        lower_bound:
+          type: number
+          minimum: 0
+        upper_bound:
+          type: number
+          minimum: 0
+        coverage_level:
+          type: number
+          minimum: 0
+          exclusiveMinimum: true
+          maximum: 1
+          exclusiveMaximum: true
+          description: >-
+            Nominal conformal coverage (strictly between 0 and 1),
+            not a per-prediction guarantee.
+
     Prediction:
       type: object
       additionalProperties: false
@@ -386,10 +406,7 @@ components:
           minimum: 0
           description: Estimated remaining useful life in cycles.
         rul_interval:
-          allOf:
-            - $ref: "#/components/schemas/RULInterval"
-          description: >
-            Optional prediction interval. Omit when unavailable.
+          $ref: "#/components/schemas/RULInterval"
         model_version:
           type: string
           description: Version of the model used for this prediction.
@@ -397,29 +414,6 @@ components:
           type: string
           format: date-time
           description: Application-generated UTC prediction timestamp.
-
-    RULInterval:
-      type: object
-      additionalProperties: false
-      required: [lower_bound, upper_bound, coverage_level]
-      properties:
-        lower_bound:
-          type: number
-          minimum: 0
-        upper_bound:
-          type: number
-          minimum: 0
-        coverage_level:
-          type: number
-          minimum: 0
-          maximum: 1
-          description: >
-            Nominal conformal coverage level, such as 0.90. The application
-            must enforce a value strictly greater than 0 and strictly less
-            than 1. This is not a per-prediction coverage guarantee.
-      description: >
-        The application must validate that upper_bound is greater than
-        or equal to lower_bound.
 
     PredictionListResponse:
       type: object
@@ -444,10 +438,7 @@ components:
           minimum: 0
           description: Estimated remaining useful life in cycles.
         interval:
-          allOf:
-            - $ref: "#/components/schemas/RULInterval"
-          description: >
-            Optional conformal prediction interval. Omit when unavailable.
+          $ref: "#/components/schemas/RULInterval"
         at_cap:
           type: boolean
           description: >
@@ -457,6 +448,9 @@ components:
     RULThresholdProbability:
       type: object
       additionalProperties: false
+      description: >
+        Optional; omit when unavailable. Include only after the estimation
+        method has been implemented and evaluated.
       required: [threshold_cycles, probability]
       properties:
         threshold_cycles:
@@ -469,8 +463,7 @@ components:
           maximum: 1
           description: >
             Estimated probability that RUL is at or below threshold_cycles.
-            This is not a real-world failure probability. Include only
-            after the estimation method has been implemented and evaluated.
+            This is not a real-world failure probability.
 
     SHAPContributor:
       type: object
@@ -479,6 +472,7 @@ components:
       properties:
         feature:
           type: string
+          minLength: 1
           description: >
             Model input feature, including raw sensors and engineered
             features such as rolling statistics.
@@ -498,6 +492,7 @@ components:
     Recommendation:
       type: object
       additionalProperties: false
+      description: Optional decision-support recommendation.
       required: [summary, rule_id]
       properties:
         summary:
@@ -509,7 +504,6 @@ components:
           minLength: 1
           description: Identifier of the decision rule that produced the guidance.
 
-    
     HealthSummary:
       type: object
       additionalProperties: false
@@ -537,60 +531,9 @@ components:
           minLength: 1
           description: Model version used for the RUL estimate.
         rul:
-          type: object
-          additionalProperties: false
-          required:
-            - estimate
-            - at_cap
-          properties:
-            estimate:
-              type: number
-              minimum: 0
-              description: Estimated remaining useful life in cycles.
-            interval:
-              type: object
-              additionalProperties: false
-              required:
-                - lower_bound
-                - upper_bound
-                - coverage_level
-              properties:
-                lower_bound:
-                  type: number
-                  minimum: 0
-                upper_bound:
-                  type: number
-                  minimum: 0
-                coverage_level:
-                  type: number
-                  exclusiveMinimum: 0
-                  exclusiveMaximum: 1
-                  description: Nominal conformal coverage, not a per-prediction guarantee.
-              description: Omit when the interval is unavailable.
-            at_cap:
-              type: boolean
-              description: >
-                True when the displayed estimate is subject to the configured
-                RUL label cap. It does not mean actual RUL equals the cap.
+          $ref: "#/components/schemas/RULEstimate"
         rul_threshold_probability:
-          type: object
-          additionalProperties: false
-          required:
-            - threshold_cycles
-            - probability
-          properties:
-            threshold_cycles:
-              type: integer
-              minimum: 1
-            probability:
-              type: number
-              minimum: 0
-              maximum: 1
-              description: >
-                Estimated probability that RUL is at or below threshold_cycles.
-                This is not a real-world failure probability. Include only
-                after the estimation method has been implemented and evaluated.
-          description: Optional; omit when unavailable.
+          $ref: "#/components/schemas/RULThresholdProbability"
         risk_level:
           type: string
           enum: [LOW, MEDIUM, HIGH]
@@ -599,51 +542,17 @@ components:
             risk assessment has been implemented and is available.
         trend:
           type: string
-          description: Brief recent RUL or sensor trend, when available.
+          enum: [improving, stable, degrading, unknown]
+          description: Recent RUL or sensor trend; omit when unavailable.
         top_contributors:
           type: array
           description: >
             Leading SHAP contributors, when a valid explanation is available.
             SHAP describes model behavior, not physical causation.
           items:
-            type: object
-            additionalProperties: false
-            required:
-              - feature
-              - shap_value
-            properties:
-              feature:
-                type: string
-                minLength: 1
-                description: Name of the sensor or engineered feature.
-              shap_value:
-                type: number
-                description: SHAP contribution in the explanation space.
-              effect_on_rul:
-                type: string
-                enum:
-                  - increases_estimated_rul
-                  - decreases_estimated_rul
-                  - direction_not_mapped
-                description: >
-                  Include only when the directional interpretation has
-                  been implemented and validated.
+            $ref: "#/components/schemas/SHAPContributor"
         recommendation:
-          type: object
-          additionalProperties: false
-          required:
-            - summary
-            - rule_id
-          properties:
-            summary:
-              type: string
-              minLength: 1
-              description: Concise research-oriented decision-support guidance.
-            rule_id:
-              type: string
-              minLength: 1
-              description: Identifier of the decision rule that produced the guidance.
-          description: Optional decision-support recommendation.
+          $ref: "#/components/schemas/Recommendation"
         generated_at:
           type: string
           format: date-time
@@ -651,6 +560,52 @@ components:
         disclaimer:
           type: string
           description: Required research-use disclaimer.
-          example: >
+          example: >-
             Research-oriented decision support based on simulated C-MAPSS
             data and retrieved technical knowledge.
+
+    Error:
+      type: object
+      required: [error, message]
+      properties:
+        error:
+          type: string
+          example: NOT_FOUND
+        message:
+          type: string
+        details:
+          type: object
+          nullable: true
+          additionalProperties: true
+
+  responses:
+    BadRequest:
+      description: Invalid request parameters
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Requested machine or resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ValidationError:
+      description: Request body failed validation
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    InternalServerError:
+      description: Unexpected server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ServiceUnavailable:
+      description: Prediction service or model is unavailable
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
