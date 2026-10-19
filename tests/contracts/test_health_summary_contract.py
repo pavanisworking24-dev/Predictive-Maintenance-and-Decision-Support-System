@@ -1,4 +1,3 @@
-
 import json
 from pathlib import Path
 
@@ -37,6 +36,16 @@ def example():
 def openapi():
     with OPENAPI_PATH.open(encoding="utf-8") as file:
         return yaml.safe_load(file)
+
+
+def resolve_ref(openapi, node):
+    """Follow a local $ref such as '#/components/schemas/RULEstimate'."""
+    while isinstance(node, dict) and "$ref" in node:
+        target = openapi
+        for part in node["$ref"].removeprefix("#/").split("/"):
+            target = target[part]
+        node = target
+    return node
 
 
 def test_example_is_valid(schema, example):
@@ -114,13 +123,16 @@ def test_openapi_health_summary_matches_key_contract_fields(openapi):
 
     assert "machine_id" in summary["required"]
     assert properties["machine_id"]["type"] == "string"
-    assert "estimate" in properties["rul"]["properties"]
-    assert "point" not in properties["rul"]["properties"]
+
+    rul = resolve_ref(openapi, properties["rul"])
+    assert "estimate" in rul["properties"]
+    assert "point" not in rul["properties"]
+
     assert "risk_level" in properties
     assert "risk" not in properties
-    assert "shap_value" in (
-        properties["top_contributors"]["items"]["properties"]
-    )
+
+    contributor = resolve_ref(openapi, properties["top_contributors"]["items"])
+    assert "shap_value" in contributor["properties"]
 
 
 def test_openapi_prediction_request_uses_readable_machine_id(openapi):
@@ -129,5 +141,3 @@ def test_openapi_prediction_request_uses_readable_machine_id(openapi):
 
     assert machine_id["type"] == "string"
     assert machine_id.get("format") != "uuid"
-    
-
