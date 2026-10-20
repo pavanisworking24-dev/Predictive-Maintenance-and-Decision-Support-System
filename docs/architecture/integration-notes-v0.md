@@ -1,228 +1,157 @@
 # Integration Notes v0
 
 **Project:** Conversational Predictive Maintenance and Decision Support System  
-**Status:** Contract alignment proposal for M0; not a claim that the described endpoints or modules are implemented.  
-**Branch:** `docs/m0-architecture-v0`
+**Status:** Contract alignment recorded for M0. OpenAPI, Health Summary schema, example and database schema agree with each other and are checked by contract tests in CI. This is not a claim that the described endpoints or modules are implemented.  
+**Version:** 0.2
 
 ## 1. Purpose
 
-This document records how the existing OpenAPI draft, PostgreSQL schema, and agreed Machine Health Summary should fit together. It distinguishes current repository definitions from the proposed v0 contract so that implementation work does not silently mix identifiers, duplicate fields, or imply unavailable model outputs.
+This document records how the OpenAPI contract, the PostgreSQL schema and the Machine Health Summary fit together, so that implementation work does not mix identifiers, duplicate fields or imply unavailable model outputs.
 
-Reviewed repository files:
+Source-of-truth files:
+- `docs/contracts/health-summary-v0.schema.json` and `docs/contracts/health-summary-v0.example.json`
 - `docs/api/openapi.yaml`
 - `docs/database/database-schema-v0.sql`
 - `docker-compose.yml`
-- `README.md`
 
-The architecture and contract are still drafts. Treat the decisions below as proposed v0 alignment until the team accepts and implements them.
+The contract tests in `tests/contracts/` verify that these files stay consistent. When one changes, update the others and this document in the same pull request.
 
 ## 2. Contract principles
 
-1. **Readable public machine identifier:** API response field `machine_id` is the stable readable code, such as `FD001-E047`.
-2. **Internal database identifier:** `machines.id` remains a UUID primary key and is not the public Health Summary `machine_id`. Foreign keys continue to use the UUID.
-3. **Dataset identity:** `dataset_id` is one of `FD001`, `FD002`, `FD003`, or `FD004`.
-4. **Cycle is an index:** `cycle` identifies an observed C-MAPSS operating cycle, not a calendar timestamp.
-5. **Application timestamps:** API fields such as `generated_at` are application-generated timestamps in UTC. C-MAPSS cycle rows do not provide real-world timestamps.
-6. **Optional means omitted when unavailable:** Do not return made-up values, empty pseudo-results, or `null` solely to represent an unimplemented capability. The schema should define the agreed behavior consistently.
-7. **Prediction versus summary:** A prediction record is a stored model result. A Health Summary is a composed response that may combine a prediction, risk result, explanation, and recommendation.
-8. **Research scope:** Results are based on simulated C-MAPSS data and retrieved technical knowledge; they are not validated industrial maintenance instructions.
+1. **Readable public machine identifier:** the API field `machine_id` is the stable readable code, such as `FD001-E047`.
+2. **Internal database identifier:** `machines.id` remains a UUID primary key and is never exposed as `machine_id`. Foreign keys use the UUID.
+3. **Dataset identity:** `dataset_id` is one of `FD001`, `FD002`, `FD003` or `FD004`.
+4. **Cycle is an index:** `cycle` is an observed C-MAPSS operating cycle, not a calendar timestamp.
+5. **Application timestamps:** fields such as `generated_at` are application-generated UTC timestamps. C-MAPSS provides no real-world timestamps.
+6. **Optional means omitted when unavailable:** do not return invented values, empty pseudo-results or `null` to represent an unimplemented capability.
+7. **Prediction versus summary:** a prediction is a stored model result. A Health Summary is a composed response that may combine a prediction, risk result, explanation and recommendation.
+8. **Research scope:** results are based on simulated C-MAPSS data and retrieved technical knowledge; they are not validated industrial maintenance instructions.
 
 ## 3. Identifier mapping
 
-| Concept | Current repository definition | Proposed API convention |
-|---|---|---|
-| Machine database primary key | `machines.id UUID` | Internal only; used in foreign keys |
-| Readable machine code | `machines.machine_code`, unique; example `FD001-E047` | Expose as `machine_id` in the agreed Health Summary and as a clearly named readable code in machine inventory responses |
-| OpenAPI machine path parameter | `machine_id` is currently documented as UUID | Change path parameter to a readable machine code, or explicitly rename it `machine_uuid` if the team chooses internal UUID paths. Do not use one name for both meanings |
-| Dataset | `machines.dataset_id` | `dataset_id`, enum FD001–FD004 |
-| Dataset engine index | `machines.engine_id` | Internal/source identifier; not a substitute for readable `machine_id` |
-| Prediction primary key | `predictions.id BIGSERIAL` | API may expose as `prediction_id`; conversion/serialization must be explicit |
-| Model version primary key | `model_versions.id UUID` | Internal foreign key; API-facing `model_version` is a readable version string unless an endpoint explicitly requests a UUID |
+| Concept | Database | API | Status |
+|---|---|---|---|
+| Machine | `machines.id` UUID (internal), `machines.machine_code` unique | `machine_id` = `machine_code`, for example `FD001-E047`; used as the path parameter | Decided and in OpenAPI |
+| Dataset / engine | `machines.dataset_id`, `machines.engine_id` | `dataset_id`; `engine_id` in machine responses | Decided |
+| Prediction | `predictions.id` BIGSERIAL | `prediction_id`, integer (int64) | Decided; changed from a string example |
+| Risk score | `risk_scores.id` BIGSERIAL | not exposed directly | Decided |
+| Alert | `alerts.id` BIGSERIAL | `alert_id`, integer (int64) | Decided |
+| Maintenance record | `maintenance_records.id` BIGSERIAL | `maintenance_id`, integer (int64) | Decided |
+| User | `users.id` UUID | UUID in `created_by`, `assigned_to`, `acknowledged_by` | Decided |
+| Chat session | `chat_sessions.id` UUID | `session_id` (UUID) | Decided |
+| Model version | `model_versions.id` UUID (internal), `model_versions.version` | `model_version`, a readable string | Decided; composite display is still open (section 9) |
 
-### Important path decision
-
-The existing OpenAPI defines `/machines/{machine_id}` with a UUID parameter, while the agreed Health Summary uses a readable `machine_id`. Before implementing endpoints, choose one consistent route convention. Recommended v0: use the readable code in public routes (for example, `/machines/FD001-E047/health-summary`) and resolve it to `machines.id` inside the repository/service layer. If changing all existing paths now is too disruptive, rename the current parameter to `machine_uuid` and document the distinction. Do not ship an ambiguous mixed convention.
+The API resolves the readable `machine_id` to `machines.id` in the repository or service layer. The two meanings never share a field name.
 
 ## 4. Health Summary field mapping
 
-The agreed Health Summary shape is the outward contract. The current OpenAPI `HealthSummary` schema differs in several places.
+The Health Summary JSON Schema is the outward contract, and OpenAPI `HealthSummary` has the same fields.
 
-| Health Summary field | Agreed meaning | Current OpenAPI | Database source / integration note |
-|---|---|---|---|
-| `machine_id` | Readable code, e.g. `FD001-E047` | UUID | Resolve `machines.id` internally; serialize `machines.machine_code` |
-| `dataset_id` | C-MAPSS subset | Present | `machines.dataset_id` |
-| `cycle` | Observed cycle index | Present | Selected cycle from `sensor_readings.cycle` / prediction |
-| `model_version` | Readable model version | Present | Join `predictions.model_version_id` to `model_versions.id`; serialize `model_versions.version` or a documented composite version |
-| `rul.estimate` | Point RUL estimate in cycles | Current field is `rul.point` | `predictions.predicted_rul`; rename response field to `estimate` |
-| `rul.interval.lower_bound` | Lower conformal interval bound | Present in `RULInterval` | `predictions.lower_bound` |
-| `rul.interval.upper_bound` | Upper conformal interval bound | Present in `RULInterval` | `predictions.upper_bound` |
-| `rul.interval.coverage_level` | Nominal conformal coverage, e.g. 0.90 | Present | `predictions.coverage_level`; nominal target is not a per-row guarantee |
-| `rul.at_cap` | Whether the displayed estimate follows the capped-RUL convention | Present in nested RUL schema | `predictions.at_cap` |
-| `rul_threshold_probability.threshold_cycles` | Configured RUL threshold | Current field `horizon_cycles` | `risk_scores.rul_threshold` |
-| `rul_threshold_probability.probability` | Estimated probability RUL is at or below threshold | Current field `value` | `risk_scores.rul_threshold_probability`; estimate only, not real-world failure probability |
-| `risk_level` | `LOW`, `MEDIUM`, or `HIGH` | Current nested `risk.level` | `risk_scores.risk_level` |
-| Risk threshold version | Provenance for risk thresholds | Nested `risk.thresholds_version` | `risk_scores.thresholds_version`; retain in response only if useful and agreed |
-| `trend` | Recent trend summary | Optional string | No dedicated table/column in schema v0; omit until calculated and validated |
-| `top_contributors[].feature` | Actual model input feature name | Present | SHAP output from model/explanation module; not currently persisted by schema v0 |
-| `top_contributors[].shap_value` | Signed SHAP value | Current field is `contribution` | Rename field to `shap_value`; do not label as a sensor if it may be an engineered feature |
-| `top_contributors[].effect_on_rul` | Optional validated plain-language direction | Not present | Include only if the direction-mapping logic is implemented and tested |
-| `recommendation.summary` | Research-oriented suggested next investigation | Current `recommended_investigation` array | Derived from versioned decision rules; no dedicated recommendation table in schema v0 |
-| `recommendation.rule_id` | Rule that produced the recommendation | Not present | Include when a stable rule identifier exists; otherwise omit |
-| `generated_at` | UTC time the summary was assembled | Present | Application-generated; not a C-MAPSS timestamp |
-| `disclaimer` | Fixed research-scope disclaimer | Missing | Include in response if the team accepts it as required; avoid repeating inconsistent variants |
+| Health Summary field | Meaning | Database source / note |
+|---|---|---|
+| `machine_id` | Readable code | Serialize `machines.machine_code` |
+| `dataset_id` | C-MAPSS subset | `machines.dataset_id` |
+| `cycle` | Observed cycle index | Selected prediction cycle |
+| `model_version` | Readable model version | Join `predictions.model_version_id` to `model_versions.version` |
+| `rul.estimate` | Point RUL estimate in cycles | `predictions.predicted_rul` |
+| `rul.interval.lower_bound` / `upper_bound` | Conformal interval | `predictions.lower_bound` / `upper_bound`; omit the interval when null |
+| `rul.interval.coverage_level` | Nominal coverage, `0 < level < 1` | `predictions.coverage_level` (also constrained below 1 in the database); a nominal level, not a per-row guarantee |
+| `rul.at_cap` | Estimate follows the capped-RUL convention | `predictions.at_cap` |
+| `rul_threshold_probability.threshold_cycles` | RUL threshold N | `risk_scores.rul_threshold` |
+| `rul_threshold_probability.probability` | Estimated P(RUL ≤ N) | `risk_scores.rul_threshold_probability`; an estimate, not a real-world failure probability |
+| `risk_level` | `LOW`, `MEDIUM` or `HIGH` | `risk_scores.risk_level` |
+| `thresholds_version` | Version of the risk-threshold configuration | `risk_scores.thresholds_version`; present if and only if `risk_level` is present |
+| `trend` | Recent trend | No table; compute at request time, omit until validated |
+| `top_contributors[].feature` | Exact model input feature name | `explanations.feature` |
+| `top_contributors[].shap_value` | Signed SHAP value | `explanations.shap_value` |
+| `top_contributors[].effect_on_rul` | Optional validated direction | Not stored; include only when the mapping is implemented and tested |
+| `recommendation.summary` / `rule_id` | Rule-based investigation guidance | Derived from the versioned decision rule table; no table in schema v0 |
+| `generated_at` | UTC time the summary was assembled | Application-generated |
+| `disclaimer` | Fixed research-scope disclaimer | Constant, required in every summary |
 
-### Proposed Health Summary shape
-
-The following is a structural example only. Values are illustrative, and optional fields should be omitted when unavailable.
-
-```json
-{
-  "machine_id": "FD001-E047",
-  "dataset_id": "FD001",
-  "cycle": 187,
-  "model_version": "xgboost-v0",
-  "rul": {
-    "estimate": 18,
-    "interval": {
-      "lower_bound": 14,
-      "upper_bound": 23,
-      "coverage_level": 0.90
-    },
-    "at_cap": false
-  },
-  "rul_threshold_probability": {
-    "threshold_cycles": 30,
-    "probability": 0.81
-  },
-  "risk_level": "HIGH",
-  "top_contributors": [
-    {
-      "feature": "sensor_11_rolling_mean_5",
-      "shap_value": 2.4,
-      "effect_on_rul": "decreases_estimated_rul"
-    }
-  ],
-  "recommendation": {
-    "summary": "Inspect the relevant subsystem",
-    "rule_id": "HIGH_RISK_SENSOR_PATTERN_01"
-  },
-  "generated_at": "2026-10-14T10:30:00Z",
-  "disclaimer": "Research-oriented decision support based on simulated C-MAPSS data and retrieved technical knowledge."
-}
-```
-
-In this example, `trend` is omitted because no trend computation is shown. `effect_on_rul` should be omitted if no validated mapping exists. The probability and interval must be omitted when their generating/calibration method is not available.
+`explanations.sensor` holds the base sensor of each feature. It supports sensor-level display and the sensor → component rules, and is exposed through `sensor_contributions` on the explanation endpoint.
 
 ## 5. Prediction record versus Health Summary
 
-The current OpenAPI `Prediction` schema uses:
-- `prediction_id`
-- UUID `machine_id`
-- `predicted_rul`
-- optional nullable `rul_interval`
-- `model_version`
-- `created_at`
-
-The database stores prediction values in `predictions`, including interval columns and `model_version_id`. This is a reasonable persistence-oriented record, but it is not identical to the composed Health Summary.
-
-Recommended separation:
-- **Prediction API record:** retain `predicted_rul` if that name is already used by the prediction endpoint; include a clear identifier convention and explicit model-version serialization.
-- **Health Summary:** use the agreed `rul.estimate` field and top-level `risk_level`, with optional explanations/recommendation.
-- **Mapping layer:** implement one explicit mapper from database prediction + risk + explanation/rule outputs to Health Summary. Avoid allowing frontend components to guess which field names correspond.
-
-If the team instead decides to standardize the Prediction response on `rul.estimate`, update the request/response schemas, examples, backend code, and tests together.
+- **Prediction record** (`Prediction` in OpenAPI): `prediction_id`, `machine_id`, `cycle`, `predicted_rul`, optional `rul_interval`, `model_version`, `created_at`. It mirrors the `predictions` table.
+- **Health Summary:** uses `rul.estimate` and top-level `risk_level`, with optional explanation and recommendation.
+- **Mapping layer:** implement one explicit mapper from database prediction, risk, explanation and rule outputs to the Health Summary. Frontend code must not guess field correspondences.
 
 ## 6. Database integration notes
 
 ### Machines and sensor readings
-- `machines.machine_code` is unique and should be the readable external identifier.
-- `(dataset_id, engine_id)` is unique; use it to prevent duplicate registration of the same C-MAPSS engine.
-- `sensor_readings` stores operating settings and sensor values in separate columns, while OpenAPI returns an object keyed by sensor name. The API serializer must map between the fixed columns and the `sensors` object.
-- `sensor_readings.created_at` is an ingestion/database timestamp, not the observation time of the original C-MAPSS cycle.
-- Add or retain uniqueness on `(machine_id, cycle)`; the current schema already has it.
+- `machines.machine_code` is unique and is the external identifier. `(dataset_id, engine_id)` is also unique.
+- `sensor_readings` stores operating settings and sensors in separate columns; the API returns a `sensors` object keyed by sensor name, so the serializer maps between them.
+- `sensor_readings.created_at` is an ingestion timestamp, not an observation time. `(machine_id, cycle)` is unique and serves as the lookup index.
 
 ### Predictions and model versions
-- `predictions.model_version_id` is a UUID foreign key; `model_versions.version` is the human-readable version.
-- The current uniqueness constraint `(machine_id, model_version_id, cycle)` prevents storing multiple predictions for the same machine/model/cycle. Confirm this is intended before adding repeated inference runs or comparing alternate feature versions.
-- `lower_bound`, `upper_bound`, and `coverage_level` can be null in storage when the interval is unavailable. The API should omit `rul.interval` if unavailable, rather than expose a nullable object, if that is the accepted contract.
-- The schema permits `coverage_level = 1`, while the OpenAPI interval requires a value strictly below 1. Align this constraint; nominal conformal levels should be in the agreed range, ordinarily `0 < coverage_level < 1`.
-- `at_cap` is stored on the prediction and can be serialized into the RUL object.
+- `(machine_id, model_version_id, cycle)` is unique, so one prediction per machine, model and cycle. Revisit this if repeated inference runs need to be kept (section 9).
+- At most one model version per dataset can be active, enforced by a partial unique index. `model_versions.calibration_version` records which conformal calibration belongs to a model.
+- `coverage_level` is constrained to `0 < level < 1`, matching OpenAPI and the JSON Schema.
 
-### Risk scores
-- `risk_scores` links to a prediction and stores `risk_level`, `rul_threshold`, optional threshold probability, and optional threshold-version label.
-- Health Summary `rul_threshold_probability.threshold_cycles` maps to `rul_threshold`; `probability` maps to `rul_threshold_probability`.
-- Do not imply that a calibrated RUL-threshold estimate is the probability of an actual real-world failure.
-- If multiple risk rows can exist for a prediction, define which row is selected (for example, current configured thresholds/version). The current schema does not enforce one risk row per prediction.
+### Risk scores and explanations
+- `risk_scores` is unique per `(prediction_id, rul_threshold, thresholds_version)`. If several thresholds are stored for one prediction, the Health Summary uses the row for the configured threshold N and the current thresholds version.
+- `explanations` stores the ranked top SHAP contributors per prediction, with unique `(prediction_id, feature)` and `(prediction_id, contribution_rank)`. SHAP values describe model behaviour, not physical causation.
 
-### SHAP explanations, recommendations, and trend
-- Schema v0 has no dedicated SHAP-contributor, trend, or recommendation table.
-- For the initial vertical slice, these may be computed at request time and returned without persistence, if that choice is documented. If they must be retained for history/audit, add a versioned persistence design before implementation.
-- Preserve feature names exactly as used by the model pipeline, including engineered rolling/trend features.
-- SHAP values explain model output behavior; they do not establish physical causation.
+### Knowledge base
+- `knowledge_documents` holds document metadata (unique on title and source). `knowledge_chunks` holds text chunks with `vector(384)` embeddings and an HNSW cosine index. The dimension must match the chosen embedding model; change it before the first ingestion if needed.
+- The assistant's citations come from `knowledge_documents` and `knowledge_chunks`. A citation supports a retrieved claim; it does not prove a model prediction is correct.
 
 ### Disclaimer and provenance
-- The current SQL schema has no explicit Health Summary table and no dedicated field for the fixed disclaimer.
-- `generated_at` can be set by the application at summary assembly time.
-- Model/data provenance should be included when available. A retrieved document citation in a conversational answer supports the retrieved claim; it does not prove that a model prediction is correct.
+- No table stores the disclaimer; it is a constant in the response.
+- Record dataset, model version, preprocessing/feature version, cycle and generation time so results can be reproduced.
 
-## 7. OpenAPI changes recommended for v0
+## 7. OpenAPI status
 
-Before implementation, align `docs/api/openapi.yaml` with these points:
+Done (checked by `tests/contracts/test_openapi_surface.py`):
+- Health Summary and its sub-schemas match the JSON Schema.
+- Readable machine path parameter; integer ids for predictions, alerts and maintenance records.
+- JWT bearer security scheme, public `POST /auth/login` and `GET /health`, `401` on every protected operation, `403` on role-restricted operations.
+- Endpoints from the scope: login, machines, sensor readings, predictions, health summary, explanation, risk and high-risk lists, maintenance (list, create, update), alerts (list, acknowledge/assign), chat and chat sessions.
+- Role restrictions follow the permission matrix: maintenance create/update for Admin and Maintenance Engineer, alert update for Admin and Maintenance Manager.
+- Enums for roles, dataset ids, alert status and severity, and maintenance status equal the database CHECK constraints.
 
-1. Resolve the machine path identifier ambiguity. Recommended public path uses the readable machine code, while UUID remains internal.
-2. Change `HealthSummary.machine_id` from UUID to string readable code.
-3. Change `HealthSummary.rul.point` to `rul.estimate`.
-4. Make `rul.interval` optional and omit it when unavailable; do not require a nullable interval.
-5. Change `rul_threshold_probability.horizon_cycles` to `threshold_cycles`, and `value` to `probability`. Decide separately whether method/provenance metadata is needed.
-6. Replace nested `risk.level` with top-level `risk_level`. Preserve threshold-version provenance only if the team wants it in the API.
-7. Change contributor field `contribution` to `shap_value`; optionally define `effect_on_rul` only after its mapping is validated.
-8. Replace `recommended_investigation` array with optional `recommendation` object containing `summary` and optionally `rule_id`.
-9. Decide whether `generated_at` and `disclaimer` are required. If required, add both to schema and examples; if not, define exactly when each is omitted.
-10. Keep the Prediction record schema distinct from Health Summary, and document the mapping.
-11. Align the database `coverage_level` constraint with OpenAPI's strict upper bound below 1.
-12. Add schema examples and contract tests for both complete and minimal valid summaries.
-
-These are recommendations, not yet edits to `openapi.yaml`.
+Not yet in the contract:
+- Admin functions: user management, risk thresholds, model version and knowledge base.
+- Logs and monitoring endpoints, and the Viewer role (an Advanced item).
+- Request examples for the new endpoints.
 
 ## 8. Runtime and deployment boundary
 
-The current `docker-compose.yml` defines only a PostgreSQL 16 service, exposed on host port 5433, with a named data volume and readiness check. It does not currently define FastAPI, React, MLflow, a vector extension, or an LLM service.
-
-Therefore:
-- Describe Compose today as the database development environment only.
-- Add backend/frontend services in a separate implementation change when their Dockerfiles and environment configuration exist.
-- Do not claim pgvector is enabled: the current SQL schema enables `pgcrypto`, not a vector extension.
-- The Compose file contains a development database password. Keep it local-only; use environment variables/secrets for shared or deployed environments.
-- A future FastAPI service should load/use the model inside the backend process for the planned first deployment, rather than introducing a separate ML microservice by default.
+- `docker-compose.yml` defines one service, PostgreSQL 16 with pgvector (`pgvector/pgvector:pg16`), published on `127.0.0.1:5433` by default, with a named data volume and a TCP health check.
+- On the first start with an empty volume the schema (`01-schema.sql`) and the development seed (`02-seed.sql`) load automatically. They do not run again for an existing volume; use `docker compose down -v` to rebuild.
+- Credentials come from a local `.env` file that is not committed; `.env.example` holds placeholders.
+- There is still no FastAPI, React, MLflow or LLM service in Compose. Add them in separate changes when their Dockerfiles exist. The model will run inside the backend process, not as a separate ML service.
+- CI starts the Compose database and runs `scripts/check_db.sh` (13 tables, pgvector, seed counts, idempotent seed, one active model per dataset).
 
 ## 9. Contract tests and acceptance checklist
 
-Implement tests before declaring the contract stable:
+- [x] Readable `machine_id`; `dataset_id` limited to FD001–FD004.
+- [x] `rul.estimate` required; interval ordered and containing the estimate (`semantic_errors`).
+- [x] `coverage_level` strictly between 0 and 1.
+- [x] `risk_level` is LOW, MEDIUM or HIGH in the schema, OpenAPI and database; `CRITICAL` is rejected.
+- [x] `thresholds_version` present if and only if `risk_level` is present.
+- [x] Example payload validates against the schema.
+- [x] OpenAPI Health Summary has the same top-level fields as the JSON Schema.
+- [x] OpenAPI references resolve; operation ids are unique; path parameters are declared.
+- [x] Authentication and role rules are declared and match the permission matrix.
+- [x] OpenAPI and database enums agree.
+- [x] Database starts from a clean Compose run with schema, pgvector and an idempotent seed.
+- [ ] Database-to-API mapping tests (readable machine code, model-version join) once the backend exists.
+- [ ] Optional trend, recommendation, probability and interval fields are omitted, not fabricated, in real responses.
+- [ ] `generated_at` is an application-generated UTC timestamp in real responses.
 
-- [ ] Readable `machine_id` accepts codes like `FD001-E047`; internal UUIDs never leak into this field.
-- [ ] `dataset_id` accepts only FD001–FD004.
-- [ ] `cycle` is a positive integer and is never treated as a timestamp.
-- [ ] Required RUL estimate is non-negative.
-- [ ] Interval lower bound is non-negative and does not exceed upper bound.
-- [ ] Interval `coverage_level` is between 0 and 1 exclusive.
-- [ ] Missing interval is omitted, not fabricated.
-- [ ] Probability is between 0 and 1 inclusive and clearly describes the RUL-threshold estimate.
-- [ ] `risk_level` is one of LOW, MEDIUM, HIGH when risk classification is available and included.
-- [ ] SHAP contributors use `feature` and `shap_value`; optional direction labels only appear when validated.
-- [ ] Optional trend/recommendation/probability/interval fields are omitted when unavailable.
-- [ ] `generated_at` is an application-generated UTC timestamp.
-- [ ] Disclaimer text is consistent with the agreed research scope.
-- [ ] Database-to-API mapping is covered by tests, including readable machine code and model version joins.
-- [ ] OpenAPI schema validation runs in CI when the contract is updated.
+## 10. Decisions
 
-## 10. Decisions still requiring team confirmation
+Resolved:
+1. **Public machine path:** the readable machine code.
+2. **Required Health Summary fields:** `machine_id`, `dataset_id`, `cycle`, `model_version`, `rul` (with `estimate` and `at_cap`), `generated_at` and `disclaimer`. `risk_level`, `thresholds_version`, interval, probability, trend, contributors and recommendation are optional.
+3. **Persistence of explanations:** top contributors are stored in `explanations`; trend and recommendation are computed at request time.
+4. **Probability provenance:** v0 does not include a method field in the summary.
 
-1. **Public machine path:** readable code (recommended) or UUID with the name `machine_uuid`.
-2. **Health Summary required fields:** recommended minimum is `machine_id`, `dataset_id`, `cycle`, `model_version`, `rul.estimate`, and `generated_at`; require `risk_level` only once risk classification is implemented and included. Decide whether the disclaimer is required in every response.
-3. **Persistence of explanations:** compute at request time for v0 or add a table for stored SHAP values and decision-rule outputs.
-4. **Model version display:** whether `model_version` is only `model_versions.version` or a composite including model name and dataset.
-5. **Risk row selection:** define behavior when several risk-score rows exist for one prediction.
-6. **Repeated predictions:** decide whether the current unique constraint is retained or expanded to include an inference/run identifier.
-7. **Probability method metadata:** whether the Health Summary includes method/version provenance for the RUL-threshold estimate.
-
-Until these are resolved, avoid silently changing the schema or presenting optional capabilities as implemented.
+Still open (team to decide):
+1. Model version display: `model_versions.version` only, or a composite with model name and dataset.
+2. Repeated predictions: keep the current unique constraint or add a run identifier.
+3. Who may call `POST /predictions` (the scope permission matrix does not list it; the contract currently allows all roles).
+4. Embedding model and vector dimension.
+5. Introducing migrations (for example Alembic) once the backend exists. Until then the SQL schema file is the single source of truth, and any change must also update this document and the tests.

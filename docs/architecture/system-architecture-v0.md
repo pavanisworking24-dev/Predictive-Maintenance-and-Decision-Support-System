@@ -1,8 +1,8 @@
 # System Architecture v0
 
 **Project:** Conversational Predictive Maintenance and Decision Support System  
-**Status:** M0 architecture baseline — proposed, subject to team review  
-**Version:** 0.1.0  
+**Status:** M0 architecture baseline — contracts aligned (see `integration-notes-v0.md`); components are staged and not all implemented  
+**Version:** 0.2.0  
 **Scope:** Historical, batch-oriented NASA C-MAPSS research case study
 
 ## 1. Purpose
@@ -20,7 +20,7 @@ The system is research-oriented decision support. It estimates Remaining Useful 
 - RUL prediction, conformal prediction intervals, configurable RUL-threshold risk estimates, and risk bands.
 - SHAP explanations of model behavior.
 - A React dashboard and FastAPI application API.
-- PostgreSQL persistence, with pgvector available for knowledge retrieval when that dependency is introduced.
+- PostgreSQL persistence. pgvector is enabled in the local database and the schema has a `knowledge_chunks` table for embeddings; ingestion and retrieval are not yet implemented.
 - Retrieval-augmented conversational assistance using a provider-independent LLM wrapper.
 - Local containerized development and automated checks through GitHub Actions.
 - Reproducible model experiments and a manual model registry using MLflow in a later milestone.
@@ -61,7 +61,7 @@ flowchart TD
     CI[GitHub Actions] --> Q[Automated contract and test checks]
 ~~~
 
-The diagram represents intended component boundaries. It does not imply that all arrows or services are already implemented. In particular, the pgvector retrieval path and MLflow integration are staged capabilities.
+The diagram represents intended component boundaries. It does not imply that all arrows or services are already implemented. In particular, the retrieval pipeline (the database side, pgvector, is ready) and MLflow integration are staged capabilities.
 
 ## 4. Component responsibilities
 
@@ -115,7 +115,7 @@ The diagram represents intended component boundaries. It does not imply that all
 - The database should enforce uniqueness for the dataset/engine pair and for the readable identifier.
 - API paths and response schemas must explicitly state whether they accept the internal UUID or public-facing code. They must not use the same field name for both meanings.
 
-The current docs/api/openapi.yaml uses a UUID machine_id in paths and response objects, and a readable machine_code in the machine object. That is a known mismatch with the agreed Health Summary convention. Align the API contract in a coordinated change; do not silently reinterpret existing UUID fields.
+Decided and implemented in docs/api/openapi.yaml: public routes and responses use the readable code as `machine_id` (for example `/machines/FD001-E047/health-summary`). The service layer resolves it to the internal UUID. Prediction, alert and maintenance ids are integers matching the database BIGSERIAL keys.
 
 ### Cycle and timestamps
 
@@ -139,6 +139,7 @@ The agreed field direction is:
 - rul.interval: optional object with lower_bound, upper_bound, and nominal coverage_level.
 - rul_threshold_probability: optional object with threshold_cycles and probability, only when the estimation method is implemented and evaluated.
 - risk_level: LOW, MEDIUM, or HIGH, when the core risk classifier is part of the response.
+- thresholds_version: version of the risk-threshold configuration; present if and only if risk_level is present.
 - trend: optional, only when computed.
 - top_contributors: optional list of actual explanation outputs using feature and shap_value; effect_on_rul is included only if its sign-to-effect mapping is implemented and validated.
 - recommendation: optional object containing a rule-grounded summary and optional rule_id.
@@ -147,7 +148,7 @@ The agreed field direction is:
 
 Do not fabricate optional fields, default missing intervals to zero-width intervals, invent SHAP contributors, or manufacture timestamps from cycles. A conformal coverage_level is a nominal target level and must not be described as a guarantee for an individual prediction.
 
-The current OpenAPI file differs from this direction in several places: it uses rul.point, nested risk.level, thresholds_version, contribution, and recommended_investigation. The separate Prediction schema uses predicted_rul. These are known contract-alignment tasks. Until the contract is updated and validated, the agreed Health Summary direction in this document should be treated as the target, not as a claim that the current API already conforms.
+The OpenAPI file, the JSON Schema and the example now agree on these field names, and contract tests in CI keep them aligned. The separate Prediction resource keeps `predicted_rul`, mirroring the `predictions` table; a mapping layer composes the Health Summary from stored prediction, risk, explanation and rule outputs. This describes the contract; the backend that serves it is not yet implemented.
 
 ## 8. Knowledge and conversational response boundaries
 
@@ -171,20 +172,20 @@ Evaluation should include normal questions, insufficient-context questions, out-
 
 ### M0 baseline
 
-- Docker Compose starts PostgreSQL and the FastAPI backend when the backend container is available.
+- Docker Compose starts PostgreSQL with pgvector. The schema and a development seed load automatically on the first start; the FastAPI backend will be added when its container exists.
 - PostgreSQL persists data through a named volume.
-- Environment-specific credentials and provider keys are supplied through environment configuration, not committed source files.
-- GitHub Actions runs the existing CI skeleton and is expanded to include schema/contract validation and tests.
+- Environment-specific credentials and provider keys are supplied through environment configuration (a local `.env` file, not committed; `.env.example` holds placeholders).
+- GitHub Actions validates the contract files, runs the contract tests and ruff, and starts the Compose database to check the schema, pgvector, the seed and key constraints (`scripts/check_db.sh`).
 - Mock responses may be used to unblock frontend integration, but must be clearly identified as mock data.
 
 ### Later additions
 
 - React frontend container and full application wiring.
-- pgvector extension and retrieval indexing, if adopted for the knowledge store.
+- Document ingestion, embedding and retrieval over the pgvector-enabled database (the embedding dimension in `knowledge_chunks` must match the chosen model).
 - MLflow tracking and manual registry.
 - Model artifacts packaged or mounted in a controlled way so the backend loads the intended model version and compatible preprocessing/features.
 
-The checked-in docker-compose.yml currently defines PostgreSQL only. It should not be described as an already-working full-stack deployment. Its database credentials are development defaults and must not be reused as production credentials.
+The checked-in docker-compose.yml currently defines PostgreSQL (with pgvector) only. It should not be described as an already-working full-stack deployment. Credentials come from the local `.env` file; development values must not be reused as production credentials.
 
 ## 10. Security, reliability, and observability
 
@@ -203,37 +204,44 @@ The checked-in docker-compose.yml currently defines PostgreSQL only. It should n
 | Contract | Owner / source of truth | Consumers | M0 rule |
 |---|---|---|---|
 | OpenAPI | docs/api/openapi.yaml | Backend, frontend, contract tests | One canonical definition per API field; validate references and schemas |
-| Health Summary JSON Schema | docs/contracts/health-summary-v0.schema.json (to be added) | Backend, frontend, LLM numerical checker | Keep names and required/optional policy aligned with OpenAPI |
-| Health Summary example | docs/contracts/health-summary-v0.example.json (to be added) | Tests, frontend mock integration | Validate against the schema; mark values illustrative |
+| Health Summary JSON Schema | docs/contracts/health-summary-v0.schema.json | Backend, frontend, LLM numerical checker | Keep names and required/optional policy aligned with OpenAPI |
+| Health Summary example | docs/contracts/health-summary-v0.example.json | Tests, frontend mock integration | Validate against the schema; mark values illustrative |
 | Database schema | docs/database/database-schema-v0.sql | Backend persistence | Document UUID-to-readable-ID mapping and JSON/API field mappings |
 | Feature/model artifact metadata | ML pipeline and model package | FastAPI inference | Reject incompatible subset, feature order, or preprocessing version |
-| Knowledge-source inventory | docs/knowledge/knowledge-source-inventory-v0.md (to be added) | Retrieval pipeline and assistant | Each source must have a stable reference and provenance |
+| Knowledge-source inventory | docs/Knowledge/knowledge-source-inventory-v0.md | Retrieval pipeline and assistant | Each source must have a stable reference and provenance |
 | CI workflow | .github/workflows/ci.yml | Contributors and reviewers | A failed contract/test check blocks acceptance of the affected change |
 
-The paths marked “to be added” were not present in the repository tree when this architecture was prepared. The actual current OpenAPI path is docs/api/openapi.yaml.
+Field-by-field mappings between the database, OpenAPI and the Health Summary are in docs/architecture/integration-notes-v0.md.
 
-## 12. Known alignment work before contract freeze
+## 12. Contract alignment status
 
-1. Standardize public readable machine_id versus internal UUID path parameters and database foreign keys. If the team retains UUID-based path parameters, name them explicitly (for example, machine_uuid) and expose the readable code as machine_id in the Health Summary.
-2. Align Health Summary names: rul.estimate, top-level risk_level, shap_value, and recommendation.
-3. Define required versus optional fields and ensure omitted fields are genuinely unavailable rather than silently defaulted.
-4. Add the research disclaimer and provenance policy to the Health Summary schema.
-5. Clarify the distinction between the Prediction resource and the aggregated Health Summary, and define an explicit mapping between their fields.
-6. Align database columns to API semantics without forcing identical names where a documented mapping is safer.
-7. Validate the OpenAPI document and Health Summary schema in CI, and validate the example payload against the schema.
-8. Update docker-compose.yml only when the backend service and health checks are ready; do not imply PostgreSQL-only Compose is the full application.
-9. Confirm whether pgvector is enabled and configured before documenting retrieval as operational.
+Done:
+
+1. Public readable `machine_id` versus internal UUID is settled (section 6).
+2. Health Summary names are aligned: `rul.estimate`, top-level `risk_level` with `thresholds_version`, `shap_value`, `recommendation`.
+3. Required and optional fields are defined in the JSON Schema; optional fields are omitted when unavailable.
+4. The research disclaimer is a required field of the Health Summary schema.
+5. The Prediction resource and the Health Summary are separate, with a documented mapping (integration notes).
+6. Database and API semantics are aligned: `coverage_level` is strictly between 0 and 1, `risk_level` allows LOW, MEDIUM and HIGH everywhere, explanations have a table.
+7. CI validates the OpenAPI document, the JSON Schema and the example payload, runs the contract tests, and starts the Compose database.
+8. pgvector is enabled in the Compose database and the schema has `knowledge_chunks`. Retrieval itself is not yet operational and must not be described as such.
+
+Still open:
+
+1. Add the backend service and its health check to Compose when the backend exists; keep Compose described as the database environment until then.
+2. Decisions listed in section 10 of the integration notes (model version display, repeated predictions, who may call POST /predictions, embedding model and dimension).
+3. Move to migrations (for example Alembic) once the backend exists.
 
 ## 13. Architecture acceptance criteria for M0
 
 - [ ] All five team members can explain the major components and their boundaries.
 - [ ] Historical-only scope and the research disclaimer are explicit.
 - [ ] The diagram and text agree that inference runs inside FastAPI.
-- [ ] Machine UUID, readable machine identifier, dataset ID, engine ID, cycle, and timestamps have distinct meanings.
-- [ ] OpenAPI, Health Summary schema/example, and database mappings have a documented field-by-field alignment.
+- [x] Machine UUID, readable machine identifier, dataset ID, engine ID, cycle, and timestamps have distinct meanings.
+- [x] OpenAPI, Health Summary schema/example, and database mappings have a documented field-by-field alignment (integration notes).
 - [ ] Optional outputs are omitted when unavailable; no synthetic explanations or timestamps are generated.
 - [ ] Mock data is labelled and validates against the intended contract.
-- [ ] CI checks the contract and schema once the corresponding validation jobs are implemented.
+- [x] CI checks the contract and schema.
 - [ ] Every item described as implemented is backed by code or a passing test; planned items remain labelled as planned.
 
 ## 14. Decision log
@@ -244,7 +252,7 @@ The paths marked “to be added” were not present in the repository tree when 
 | Backend | FastAPI |
 | Model inference | Inside FastAPI; no separate ML microservice |
 | Frontend | React |
-| Database | PostgreSQL; pgvector for retrieval when configured |
+| Database | PostgreSQL 16 with pgvector enabled in the local Compose database; schema includes explanations and knowledge chunks |
 | Initial data | Historical NASA C-MAPSS data |
 | Dataset strategy | Shared loader/interface; evaluate each subset separately before cross-subset experiments |
 | Uncertainty | Split conformal prediction intervals |
@@ -254,8 +262,9 @@ The paths marked “to be added” were not present in the repository tree when 
 | Experiment tracking | MLflow planned for a later milestone |
 | Live telemetry | Explicitly out of scope for current version |
 | Health Summary identity | Readable public machine_id; internal database UUID remains separate |
+| Authentication and roles | JWT bearer tokens; roles Admin, Maintenance Manager and Maintenance Engineer, with role-restricted operations declared in OpenAPI |
 | Missing optional outputs | Omit them rather than fabricate values |
 
 ---
 
-**Document status:** Proposed M0 architecture baseline. Update the architecture and linked contracts together when a decision changes; do not let the diagram, OpenAPI, schema, database, and implementation drift independently.
+**Document status:** M0 architecture baseline with aligned contracts. Update the architecture and linked contracts together when a decision changes; do not let the diagram, OpenAPI, schema, database, and implementation drift independently.

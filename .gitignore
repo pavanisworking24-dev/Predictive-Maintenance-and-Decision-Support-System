@@ -4,10 +4,12 @@ __pycache__/
 .venv/
 venv/
 env/
+.pytest_cache/
 
-# Environment variables
+# Environment variables (keep the example file tracked)
 .env
 .env.*
+!.env.example
 
 # Jupyter
 .ipynb_checkpoints/
@@ -33,10 +35,17 @@ build/
 *.h5
 *.pt
 *.pth
+*.parquet
+mlruns/
+mlartifacts/
 
-# Data
+# Data (raw C-MAPSS files must never be committed)
 data/raw/
 data/processed/
+train_FD*.txt
+test_FD*.txt
+RUL_FD*.txt
+archive.zip
 
 # PostgreSQL
 *.sql.bak

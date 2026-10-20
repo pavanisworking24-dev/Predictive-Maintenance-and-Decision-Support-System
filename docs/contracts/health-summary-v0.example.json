@@ -17,6 +17,7 @@
     "probability": 0.81
   },
   "risk_level": "HIGH",
+  "thresholds_version": "cfg-2",
   "trend": "degrading",
   "top_contributors": [
     {

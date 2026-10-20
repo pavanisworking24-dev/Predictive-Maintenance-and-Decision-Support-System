@@ -11,6 +11,18 @@ info:
     decision support. This contract describes the planned API and does
     not imply that every endpoint is implemented.
 
+    Authentication: every endpoint except POST /auth/login and GET /health
+    requires a JWT bearer token. Role-restricted operations list their
+    allowed roles in the x-allowed-roles extension and return 403 for other
+    roles; operations without it are open to all authenticated roles
+    (ADMIN, MAINTENANCE_MANAGER, MAINTENANCE_ENGINEER).
+
+    Paths differ from the first scope draft as follows:
+    GET /machines/{machine_id}/sensor-readings replaces
+    GET /machines/{id}/history, and
+    GET /machines/{machine_id}/predictions replaces
+    GET /predictions/{machine_id}.
+
 servers:
   - url: http://localhost:8000/api/v1
     description: Local development
@@ -26,6 +38,23 @@ tags:
     description: RUL predictions and prediction history
   - name: Health Summary
     description: Combined machine health and decision-support information
+  - name: Authentication
+    description: Login and access tokens
+  - name: Risk
+    description: Fleet risk view
+  - name: Explanation
+    description: SHAP explanations of model predictions
+  - name: Maintenance
+    description: Maintenance records
+  - name: Alerts
+    description: Risk alerts and their acknowledgement
+  - name: Assistant
+    description: Conversational decision-support assistant
+  - name: Platform
+    description: Service health
+
+security:
+  - bearerAuth: []
 
 paths:
   /machines:
@@ -64,6 +93,8 @@ paths:
                 $ref: "#/components/schemas/MachineListResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/InternalServerError"
 
@@ -83,6 +114,8 @@ paths:
                 $ref: "#/components/schemas/Machine"
         "404":
           $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/InternalServerError"
 
@@ -128,6 +161,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "404":
           $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/InternalServerError"
 
@@ -156,6 +191,8 @@ paths:
                 $ref: "#/components/schemas/PredictionListResponse"
         "404":
           $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/InternalServerError"
 
@@ -189,6 +226,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "422":
           $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/InternalServerError"
         "503":
@@ -217,11 +256,431 @@ paths:
                 $ref: "#/components/schemas/HealthSummary"
         "404":
           $ref: "#/components/responses/NotFound"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /health:
+    get:
+      tags: [Platform]
+      summary: Service health check
+      operationId: getHealth
+      description: >
+        Liveness and readiness check for Docker, CI and monitoring.
+        No authentication is required.
+      security: []
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /auth/login:
+    post:
+      tags: [Authentication]
+      summary: Log in and obtain an access token
+      operationId: login
+      description: >
+        Exchanges email and password for a JWT bearer token. The token
+        carries the user's role.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Login succeeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /risk:
+    get:
+      tags: [Risk]
+      summary: List the latest risk assessment per machine
+      operationId: listRisk
+      description: >
+        Fleet view for the dashboard: the latest stored risk result for
+        each machine, optionally filtered by dataset and risk level.
+        Risk probabilities are model-derived estimates, not real-world
+        failure probabilities.
+      parameters:
+        - name: dataset_id
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/DatasetId"
+        - name: risk_level
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/RiskLevel"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Risk list retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RiskListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /risk/high:
+    get:
+      tags: [Risk]
+      summary: List machines currently at HIGH risk
+      operationId: listHighRisk
+      description: Same item shape as GET /risk, restricted to the HIGH risk level.
+      parameters:
+        - name: dataset_id
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/DatasetId"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: High-risk machines retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RiskListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /machines/{machine_id}/explanation:
+    parameters:
+      - $ref: "#/components/parameters/MachineId"
+    get:
+      tags: [Explanation]
+      summary: Get the SHAP explanation for a machine
+      operationId: getExplanation
+      description: >
+        Returns the top SHAP contributors for the latest prediction, or for
+        the requested cycle when a stored explanation exists. SHAP describes
+        model behaviour; it does not establish a physical cause.
+      parameters:
+        - name: cycle
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+          description: Observed cycle; defaults to the latest explained cycle.
+      responses:
+        "200":
+          description: Explanation retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExplanationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /maintenance:
+    get:
+      tags: [Maintenance]
+      summary: List maintenance records
+      operationId: listMaintenance
+      parameters:
+        - name: machine_id
+          in: query
+          required: false
+          schema:
+            type: string
+            example: FD001-E047
+          description: Filter by public machine identifier.
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/MaintenanceStatus"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Maintenance records retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MaintenanceListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      tags: [Maintenance]
+      summary: Create a maintenance record
+      operationId: createMaintenance
+      x-allowed-roles: [ADMIN, MAINTENANCE_ENGINEER]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MaintenanceCreate"
+      responses:
+        "201":
+          description: Maintenance record created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MaintenanceRecord"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /maintenance/{maintenance_id}:
+    parameters:
+      - $ref: "#/components/parameters/MaintenanceId"
+    put:
+      tags: [Maintenance]
+      summary: Update a maintenance record
+      operationId: updateMaintenance
+      description: >
+        Fields that are omitted are left unchanged. completed_at must not be
+        earlier than scheduled_at.
+      x-allowed-roles: [ADMIN, MAINTENANCE_ENGINEER]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MaintenanceUpdate"
+      responses:
+        "200":
+          description: Maintenance record updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MaintenanceRecord"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /alerts:
+    get:
+      tags: [Alerts]
+      summary: List alerts
+      operationId: listAlerts
+      description: >
+        Alerts are created automatically when a machine's risk level changes
+        to HIGH or its predicted RUL falls below the configured threshold.
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/AlertStatus"
+        - name: severity
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/RiskLevel"
+        - name: machine_id
+          in: query
+          required: false
+          schema:
+            type: string
+            example: FD001-E047
+          description: Filter by public machine identifier.
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Alerts retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /alerts/{alert_id}:
+    parameters:
+      - $ref: "#/components/parameters/AlertId"
+    patch:
+      tags: [Alerts]
+      summary: Acknowledge, resolve or assign an alert
+      operationId: updateAlert
+      description: >
+        Setting status to ACKNOWLEDGED or RESOLVED records the acting user
+        and the time. assigned_to is a user id; send null to unassign.
+      x-allowed-roles: [ADMIN, MAINTENANCE_MANAGER]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AlertUpdate"
+      responses:
+        "200":
+          description: Alert updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Alert"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /chat:
+    post:
+      tags: [Assistant]
+      summary: Ask the conversational assistant
+      operationId: createChatMessage
+      description: >
+        The answer is grounded in the machine's Machine Health Summary (when
+        machine_id is given) and retrieved knowledge-base passages, and
+        distinguishes model output, retrieved knowledge and uncertainty.
+        Every response carries the research disclaimer.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatRequest"
+      responses:
+        "200":
+          description: Assistant answer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /chat/sessions:
+    get:
+      tags: [Assistant]
+      summary: List the current user's chat sessions
+      operationId: listChatSessions
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Chat sessions retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatSessionListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/InternalServerError"
 
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT access token obtained from POST /auth/login.
+
   parameters:
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    Offset:
+      name: offset
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+    MaintenanceId:
+      name: maintenance_id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    AlertId:
+      name: alert_id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
     MachineId:
       name: machine_id
       in: path
@@ -392,9 +851,13 @@ components:
         - created_at
       properties:
         prediction_id:
-          type: string
-          description: Identifier for the prediction record.
-          example: pred_001
+          type: integer
+          format: int64
+          minimum: 1
+          description: >
+            Identifier of the prediction record (predictions.id, a
+            BIGSERIAL in the database).
+          example: 1042
         machine_id:
           type: string
           example: FD001-E047
@@ -540,6 +1003,13 @@ components:
           description: >
             Risk band from the configured risk rules. Include only when
             risk assessment has been implemented and is available.
+        thresholds_version:
+          type: string
+          minLength: 1
+          example: cfg-2
+          description: >
+            Version of the risk-threshold configuration that produced
+            risk_level. Present if and only if risk_level is present.
         trend:
           type: string
           enum: [improving, stable, degrading, unknown]
@@ -563,6 +1033,447 @@ components:
           example: >-
             Research-oriented decision support based on simulated C-MAPSS
             data and retrieved technical knowledge.
+
+    RiskLevel:
+      type: string
+      enum: [LOW, MEDIUM, HIGH]
+
+    AlertStatus:
+      type: string
+      enum: [OPEN, ACKNOWLEDGED, RESOLVED]
+
+    MaintenanceStatus:
+      type: string
+      enum: [OPEN, IN_PROGRESS, COMPLETED, CANCELLED]
+
+    UserRole:
+      type: string
+      enum: [ADMIN, MAINTENANCE_MANAGER, MAINTENANCE_ENGINEER]
+
+    HealthStatus:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+        database:
+          type: string
+          enum: [ok, unavailable]
+        model_loaded:
+          type: boolean
+        version:
+          type: string
+          example: 0.1.0
+
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+          minLength: 1
+
+    TokenResponse:
+      type: object
+      additionalProperties: false
+      required: [access_token, token_type, expires_in, role]
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+          enum: [bearer]
+        expires_in:
+          type: integer
+          minimum: 1
+          description: Token lifetime in seconds.
+        role:
+          $ref: "#/components/schemas/UserRole"
+
+    RiskSummaryItem:
+      type: object
+      additionalProperties: false
+      required: [machine_id, dataset_id, cycle, rul_estimate, at_cap, risk_level]
+      properties:
+        machine_id:
+          type: string
+          example: FD001-E047
+        dataset_id:
+          $ref: "#/components/schemas/DatasetId"
+        cycle:
+          type: integer
+          minimum: 1
+        rul_estimate:
+          type: number
+          minimum: 0
+          description: Estimated remaining useful life in cycles.
+        at_cap:
+          type: boolean
+          description: >
+            True when the estimate is subject to the RUL label cap; the UI
+            shows it as at or above the cap, not as an exact value.
+        risk_level:
+          $ref: "#/components/schemas/RiskLevel"
+        thresholds_version:
+          type: string
+          example: cfg-2
+        rul_threshold_probability:
+          $ref: "#/components/schemas/RULThresholdProbability"
+
+    RiskListResponse:
+      type: object
+      additionalProperties: false
+      required: [items, total, limit, offset]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/RiskSummaryItem"
+        total:
+          type: integer
+          minimum: 0
+        limit:
+          type: integer
+          minimum: 1
+        offset:
+          type: integer
+          minimum: 0
+
+    SensorContribution:
+      type: object
+      additionalProperties: false
+      required: [sensor, shap_value]
+      properties:
+        sensor:
+          type: string
+          example: sensor_11
+        shap_value:
+          type: number
+          description: Sum of the SHAP values of this sensor's features.
+
+    ExplanationResponse:
+      type: object
+      additionalProperties: false
+      required: [machine_id, cycle, model_version, contributors]
+      properties:
+        machine_id:
+          type: string
+          example: FD001-E047
+        cycle:
+          type: integer
+          minimum: 1
+        model_version:
+          type: string
+        contributors:
+          type: array
+          description: Top feature-level SHAP contributors, largest first.
+          items:
+            $ref: "#/components/schemas/SHAPContributor"
+        sensor_contributions:
+          type: array
+          description: Contributions aggregated to sensor level.
+          items:
+            $ref: "#/components/schemas/SensorContribution"
+        generated_at:
+          type: string
+          format: date-time
+
+    MaintenanceRecord:
+      type: object
+      additionalProperties: false
+      required: [maintenance_id, machine_id, created_by, title, status, created_at]
+      properties:
+        maintenance_id:
+          type: integer
+          format: int64
+          minimum: 1
+        machine_id:
+          type: string
+          example: FD001-E047
+        created_by:
+          type: string
+          format: uuid
+          description: Id of the user who created the record.
+        title:
+          type: string
+          maxLength: 200
+        description:
+          type: string
+          nullable: true
+        action:
+          type: string
+          nullable: true
+        status:
+          $ref: "#/components/schemas/MaintenanceStatus"
+        scheduled_at:
+          type: string
+          format: date-time
+          nullable: true
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    MaintenanceCreate:
+      type: object
+      additionalProperties: false
+      required: [machine_id, title]
+      properties:
+        machine_id:
+          type: string
+          example: FD001-E047
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+        action:
+          type: string
+        status:
+          $ref: "#/components/schemas/MaintenanceStatus"
+        scheduled_at:
+          type: string
+          format: date-time
+
+    MaintenanceUpdate:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+        action:
+          type: string
+        status:
+          $ref: "#/components/schemas/MaintenanceStatus"
+        scheduled_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+
+    MaintenanceListResponse:
+      type: object
+      additionalProperties: false
+      required: [items, total, limit, offset]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MaintenanceRecord"
+        total:
+          type: integer
+          minimum: 0
+        limit:
+          type: integer
+          minimum: 1
+        offset:
+          type: integer
+          minimum: 0
+
+    Alert:
+      type: object
+      additionalProperties: false
+      required: [alert_id, machine_id, alert_type, severity, message, status, created_at]
+      properties:
+        alert_id:
+          type: integer
+          format: int64
+          minimum: 1
+        machine_id:
+          type: string
+          example: FD001-E047
+        prediction_id:
+          type: integer
+          format: int64
+          minimum: 1
+          nullable: true
+        alert_type:
+          type: string
+          example: RISK_HIGH
+        severity:
+          $ref: "#/components/schemas/RiskLevel"
+        message:
+          type: string
+        status:
+          $ref: "#/components/schemas/AlertStatus"
+        assigned_to:
+          type: string
+          format: uuid
+          nullable: true
+        acknowledged_by:
+          type: string
+          format: uuid
+          nullable: true
+        acknowledged_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    AlertUpdate:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        status:
+          type: string
+          enum: [ACKNOWLEDGED, RESOLVED]
+        assigned_to:
+          type: string
+          format: uuid
+          nullable: true
+          description: User id to assign the alert to; null removes the assignment.
+
+    AlertListResponse:
+      type: object
+      additionalProperties: false
+      required: [items, total, limit, offset]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Alert"
+        total:
+          type: integer
+          minimum: 0
+        limit:
+          type: integer
+          minimum: 1
+        offset:
+          type: integer
+          minimum: 0
+
+    ChatRequest:
+      type: object
+      additionalProperties: false
+      required: [message]
+      properties:
+        message:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        machine_id:
+          type: string
+          example: FD001-E047
+          description: Optional machine the question is about.
+        session_id:
+          type: string
+          format: uuid
+          description: Existing chat session; a new session is created if omitted.
+
+    ChatSource:
+      type: object
+      additionalProperties: false
+      required: [document_id, title, source]
+      properties:
+        document_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        source:
+          type: string
+        source_url:
+          type: string
+          nullable: true
+        chunk_index:
+          type: integer
+          minimum: 0
+
+    ChatResponse:
+      type: object
+      additionalProperties: false
+      required: [session_id, answer, sources, disclaimer, generated_at]
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        answer:
+          type: string
+        sources:
+          type: array
+          description: Retrieved knowledge passages the answer is grounded in.
+          items:
+            $ref: "#/components/schemas/ChatSource"
+        machine_id:
+          type: string
+          example: FD001-E047
+          description: Machine whose Health Summary was used, if any.
+        cycle:
+          type: integer
+          minimum: 1
+          description: Cycle of the Health Summary that was used, if any.
+        disclaimer:
+          type: string
+          example: >-
+            This is research-oriented decision support based on simulated
+            C-MAPSS data and retrieved technical knowledge.
+        generated_at:
+          type: string
+          format: date-time
+
+    ChatSession:
+      type: object
+      additionalProperties: false
+      required: [session_id, created_at]
+      properties:
+        session_id:
+          type: string
+          format: uuid
+        machine_id:
+          type: string
+          nullable: true
+          example: FD001-E047
+        title:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ChatSessionListResponse:
+      type: object
+      additionalProperties: false
+      required: [items, total, limit, offset]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChatSession"
+        total:
+          type: integer
+          minimum: 0
+        limit:
+          type: integer
+          minimum: 1
+        offset:
+          type: integer
+          minimum: 0
 
     Error:
       type: object
@@ -603,8 +1514,22 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: Missing, invalid or expired credentials
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: The authenticated user's role is not allowed to do this
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     ServiceUnavailable:
-      description: Prediction service or model is unavailable
+      description: >
+        A required service is unavailable (for example the model, the
+        database or the LLM provider)
       content:
         application/json:
           schema:
