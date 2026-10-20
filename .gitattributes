@@ -1,0 +1,11 @@
+# Store text files with LF in the repository and check them out with LF,
+# regardless of each contributor's OS or global autocrlf setting.
+* text=auto eol=lf
+
+# Binary files: never convert.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
+*.zip binary
