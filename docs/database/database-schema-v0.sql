@@ -6,8 +6,18 @@
 -- Project:
 -- Conversational Predictive Maintenance and Decision Support System
 --
--- Schema version: v0
--- Core entities: 11
+-- Schema version: v0 (revision 1)
+-- Core entities: 13
+--
+-- Revision 1 changes (no deployed database existed when these were made):
+--   * pgvector extension and knowledge_chunks table (RAG embeddings)
+--   * explanations table (stored SHAP contributors per prediction)
+--   * at most one active model version per dataset
+--   * unique constraints so the seed script is safe to re-run
+--   * model_versions.calibration_version (links a model to its conformal
+--     calibration), coverage_level restricted to 0 < level < 1
+--   * removed a duplicate index on sensor_readings
+-- Once the backend exists, further changes must go through migrations.
 -- ============================================================
 
 
@@ -16,6 +26,10 @@
 -- ============================================================
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- pgvector: requires a PostgreSQL image that ships the extension
+-- (docker-compose.yml uses pgvector/pgvector:pg16).
+CREATE EXTENSION IF NOT EXISTS vector;
 
 
 -- ============================================================
@@ -179,6 +193,10 @@ CREATE TABLE model_versions (
 
     preprocessing_version VARCHAR(50),
 
+    -- Version of the conformal calibration (calibration engines, bins,
+    -- residuals) used together with this model
+    calibration_version VARCHAR(50),
+
     is_active BOOLEAN NOT NULL DEFAULT FALSE,
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -242,7 +260,7 @@ CREATE TABLE predictions (
             coverage_level IS NULL
             OR (
                 coverage_level > 0
-                AND coverage_level <= 1
+                AND coverage_level < 1
             )
         )
 );
@@ -288,7 +306,16 @@ CREATE TABLE risk_scores (
 
     thresholds_version VARCHAR(50),
 
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    -- One risk row per prediction, threshold and thresholds version.
+    -- NULLS NOT DISTINCT (PostgreSQL 15+) also covers a missing version.
+    CONSTRAINT uq_risk_score_prediction_threshold
+        UNIQUE NULLS NOT DISTINCT (
+            prediction_id,
+            rul_threshold,
+            thresholds_version
+        )
 );
 
 
@@ -469,7 +496,76 @@ CREATE TABLE knowledge_documents (
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT uq_knowledge_document_title_source
+        UNIQUE (title, source)
+);
+
+
+-- ============================================================
+-- 12. EXPLANATIONS (stored SHAP contributors)
+-- ============================================================
+
+CREATE TABLE explanations (
+    id BIGSERIAL PRIMARY KEY,
+
+    prediction_id BIGINT NOT NULL
+        REFERENCES predictions(id)
+        ON DELETE CASCADE,
+
+    -- 1 = largest absolute contribution for this prediction
+    contribution_rank INTEGER NOT NULL
+        CHECK (contribution_rank > 0),
+
+    -- Exact model input feature name, for example sensor_11_rolling_mean_5
+    feature VARCHAR(100) NOT NULL,
+
+    -- Base sensor the feature belongs to (sensor-level aggregation), if any
+    sensor VARCHAR(20),
+
+    shap_value DOUBLE PRECISION NOT NULL,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT uq_explanation_prediction_feature
+        UNIQUE (prediction_id, feature),
+
+    CONSTRAINT uq_explanation_prediction_rank
+        UNIQUE (prediction_id, contribution_rank)
+);
+
+
+-- ============================================================
+-- 13. KNOWLEDGE CHUNKS (RAG text chunks and embeddings)
+-- ============================================================
+
+CREATE TABLE knowledge_chunks (
+    id BIGSERIAL PRIMARY KEY,
+
+    document_id UUID NOT NULL
+        REFERENCES knowledge_documents(id)
+        ON DELETE CASCADE,
+
+    chunk_index INTEGER NOT NULL
+        CHECK (chunk_index >= 0),
+
+    content TEXT NOT NULL,
+
+    -- Page, section, sensor tags and other retrieval metadata
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+
+    -- Embedding dimension must match the chosen embedding model.
+    -- 384 fits common small sentence-embedding models; change it before
+    -- the first ingestion if the team picks a different model.
+    embedding vector(384),
+
+    embedding_model VARCHAR(100),
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT uq_knowledge_chunk_document_index
+        UNIQUE (document_id, chunk_index)
 );
 
 
@@ -479,8 +575,13 @@ CREATE TABLE knowledge_documents (
 
 
 -- Sensor readings
-CREATE INDEX idx_sensor_readings_machine_cycle
-    ON sensor_readings(machine_id, cycle);
+-- (machine_id, cycle) is already indexed by uq_sensor_reading_machine_cycle.
+
+
+-- Model versions: at most one active model per dataset
+CREATE UNIQUE INDEX uq_model_versions_one_active_per_dataset
+    ON model_versions(dataset_id)
+    WHERE is_active;
 
 
 -- Predictions
@@ -506,6 +607,9 @@ CREATE INDEX idx_alerts_status
 CREATE INDEX idx_alerts_machine
     ON alerts(machine_id);
 
+CREATE INDEX idx_alerts_prediction
+    ON alerts(prediction_id);
+
 
 -- Maintenance
 CREATE INDEX idx_maintenance_machine
@@ -523,6 +627,12 @@ CREATE INDEX idx_chat_messages_session
 -- Knowledge documents
 CREATE INDEX idx_knowledge_documents_type
     ON knowledge_documents(document_type);
+
+
+-- Knowledge chunks: approximate nearest-neighbour search (cosine distance)
+CREATE INDEX idx_knowledge_chunks_embedding
+    ON knowledge_chunks
+    USING hnsw (embedding vector_cosine_ops);
 
 
 -- ============================================================

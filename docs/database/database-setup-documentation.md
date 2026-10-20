@@ -4,26 +4,28 @@
 
 This document describes the PostgreSQL database used by the **Predictive Maintenance and Decision-Support System**. It covers local setup, the schema, tables, primary and foreign keys, relationships, constraints, indexes, seed data, verification queries, and common troubleshooting steps.
 
-The database is intended to store machine metadata, sensor readings, model versions, RUL predictions, risk scores, alerts, maintenance records, chat history, and knowledge-document metadata.
+The database is intended to store machine metadata, sensor readings, model versions, RUL predictions, risk scores, SHAP explanations, alerts, maintenance records, chat history, and knowledge documents with their text chunks and vector embeddings (pgvector).
 
 > **Scope note:** This document describes the database schema and local development setup. It does not implement prediction logic, an API, a dashboard, authentication flows, or an LLM/RAG pipeline.
 
 ## 2. Database technology and local configuration
 
-The project uses **PostgreSQL 16**, commonly run locally through Docker Compose.
+The project uses **PostgreSQL 16 with the pgvector extension**, run locally through Docker Compose (image `pgvector/pgvector:pg16`).
 
-The previously used development configuration is:
+The development configuration is read from a local `.env` file (copy `.env.example` to `.env`; `.env` is not committed). The defaults are:
 
 | Setting | Value |
 |---|---|
 | Database | `predictive_maintenance` |
 | Database user | `pm_user` |
-| PostgreSQL port | `5432` |
-| Database container name seen in prior setup | `predictive-maintenance-postgres` |
+| PostgreSQL port on your machine | `5433` (`POSTGRES_HOST_PORT`); inside the container PostgreSQL uses `5432` |
+| Database container name | `predictive-maintenance-postgres` |
 | Schema file | `docs/database/database-schema-v0.sql` |
 | Seed file | `docs/database/seed-v0.sql` |
 
-The development password was previously set to `pm_password`, but **check the current Compose or environment configuration before using it**. Do not commit real credentials or production secrets to Git.
+The password comes from `POSTGRES_PASSWORD` in your `.env` file; Compose refuses to start if it is missing. Do not commit `.env`, real credentials or production secrets to Git.
+
+> **Existing local databases:** if you started the database before this change, your volume still holds the old password (`pm_password`) and the old tables. Either put `POSTGRES_PASSWORD=pm_password` in `.env`, or rebuild the database from scratch with `docker compose down -v` (this deletes local data).
 
 ## 3. Repository files
 
@@ -47,14 +49,29 @@ Run commands from the project root—the folder containing the Compose file.
 
 ### 4.1 Start the database
 
-In Windows Command Prompt (CMD):
+One-time setup: create your local environment file.
 
 ```bat
-docker compose up -d
+copy .env.example .env
+```
+
+(On Git Bash, Linux or macOS use `cp .env.example .env`.) Edit `.env` if you want a different password or host port.
+
+Then, in Windows Command Prompt (CMD):
+
+```bat
+docker compose up -d --wait
 docker compose ps
 ```
 
-Confirm that the PostgreSQL service is running and healthy.
+`--wait` returns once the database is healthy. On the **first start with an empty volume**, PostgreSQL automatically runs `docs/database/database-schema-v0.sql` and then `docs/database/seed-v0.sql` (mounted as `01-schema.sql` and `02-seed.sql`), so sections 5 and 6 are only needed for manual or repeat runs. These scripts do not run again when the volume already contains data.
+
+To rebuild the database from scratch (deletes all local data):
+
+```bat
+docker compose down -v
+docker compose up -d --wait
+```
 
 If the Compose service is named `postgres`, you can inspect its logs with:
 
@@ -72,7 +89,9 @@ docker ps
 
 Look for the PostgreSQL container and its published port. If PostgreSQL is not running, inspect the Compose logs before continuing.
 
-## 5. Apply the schema
+## 5. Apply the schema manually (optional)
+
+With the current Compose file the schema is applied automatically on first start (section 4.1). Use this section only when you need to apply it to a database that was not created that way. The schema script is **not** safe to run twice on the same database.
 
 Choose the command that matches your Compose configuration.
 
@@ -108,9 +127,11 @@ Then, at the `psql` prompt, use `\i` with the path visible **inside the containe
 
 Use one schema-application method, not all methods repeatedly. If the schema has already been applied, inspect the existing tables first. Some SQL scripts are not designed to be run multiple times.
 
-## 6. Apply seed data
+## 6. Apply seed data manually (optional)
 
-After the schema is successfully created, apply the seed file once.
+The seed file is also loaded automatically on first start. It is safe to run again: every insert uses `ON CONFLICT DO NOTHING` and the schema's unique constraints make duplicate rows impossible. `scripts/check_db.sh` verifies this.
+
+To run it manually:
 
 For example, using the container-copy method:
 
@@ -121,11 +142,17 @@ docker exec -it predictive-maintenance-postgres psql -U pm_user -d predictive_ma
 
 Or execute `seed-v0.sql` in pgAdmin's Query Tool while connected to `predictive_maintenance`.
 
-Seed data is for development and verification only. Review the seed script before re-running it to check whether it inserts duplicate records or assumes an empty database.
+Seed data is for development and verification only.
+
+To check the whole setup (13 tables, pgvector, seed counts, idempotent seed, one active model per dataset), run from the repository root in Git Bash, WSL, Linux or macOS:
+
+```bash
+bash scripts/check_db.sh
+```
 
 ## 7. Database schema overview
 
-The schema contains **11 tables**:
+The schema contains **13 tables** and enables the `pgcrypto` and `vector` (pgvector) extensions:
 
 | Table | Purpose |
 |---|---|
@@ -135,11 +162,13 @@ The schema contains **11 tables**:
 | `model_versions` | Records model metadata and artifact/version information. |
 | `predictions` | Stores predicted RUL values and optional uncertainty bounds. |
 | `risk_scores` | Stores risk level and threshold/probability information associated with predictions. |
+| `explanations` | Stores the top SHAP contributors (feature, sensor, SHAP value, rank) for a prediction. |
 | `alerts` | Stores machine alerts, severity, status, acknowledgement, and assignment. |
 | `maintenance_records` | Stores maintenance work records and their status. |
 | `chat_sessions` | Stores chat sessions linked to a user and optionally a machine. |
 | `chat_messages` | Stores user/assistant messages within a chat session. |
 | `knowledge_documents` | Stores metadata about knowledge-base documents. |
+| `knowledge_chunks` | Stores text chunks of knowledge documents with their pgvector embeddings for retrieval. |
 
 ### 7.1 Relationship overview
 
@@ -147,7 +176,8 @@ The schema contains **11 tables**:
 machines
  ├── sensor_readings
  ├── predictions ── model_versions
- │    └── risk_scores
+ │    ├── risk_scores
+ │    └── explanations
  ├── risk_scores
  ├── alerts ── users (assigned_to / acknowledged_by)
  ├── maintenance_records ── users (created_by)
@@ -155,6 +185,7 @@ machines
       └── chat_messages
 
 knowledge_documents
+ └── knowledge_chunks
 ```
 
 More precisely:
@@ -162,14 +193,14 @@ More precisely:
 - One machine can have many sensor readings.
 - One machine can have many predictions.
 - Each prediction references one model version.
-- A prediction can have associated risk-score records.
+- A prediction can have associated risk-score records and stored SHAP explanation rows.
 - One machine can have many risk scores.
 - A machine can have many alerts; an alert may optionally reference a prediction.
 - An alert may optionally reference users for assignment and acknowledgement.
 - A machine can have many maintenance records; each record references the user who created it.
 - A user can have many chat sessions.
 - A chat session can optionally reference a machine and can contain many chat messages.
-- `knowledge_documents` stores document metadata and is not directly connected to the other tables in this schema version.
+- A knowledge document can have many knowledge chunks. `knowledge_documents` is otherwise not connected to the other tables.
 
 ## 8. Table details
 
@@ -231,7 +262,7 @@ Constraints and indexes:
 - `machine_id` references `machines.id` with `ON DELETE CASCADE`.
 - `cycle` must be positive.
 - `(machine_id, cycle)` is unique, preventing duplicate cycle records for the same machine.
-- Index: `idx_sensor_readings_machine_cycle`.
+- The unique constraint on `(machine_id, cycle)` also serves as the lookup index for readings by machine and cycle.
 
 ### 8.4 `model_versions`
 
@@ -249,6 +280,8 @@ Key fields include:
 Constraints and notes:
 
 - `(model_name, version)` is unique.
+- At most one model version per dataset can be active (partial unique index `uq_model_versions_one_active_per_dataset`).
+- `calibration_version` records which conformal calibration belongs to the model.
 - Predictions reference a model version.
 - The exact allowed values for model type and dataset identifiers are defined in the SQL schema.
 
@@ -272,7 +305,7 @@ Constraints and indexes:
 - `(machine_id, model_version_id, cycle)` is unique.
 - `predicted_rul` must be nonnegative.
 - A check validates lower/upper bound consistency.
-- A check constrains `coverage_level` to its permitted range.
+- A check constrains `coverage_level` to `0 < coverage_level < 1`.
 - Indexes support machine/cycle and model-version lookups.
 - `machine_id` references `machines.id` with `ON DELETE CASCADE`.
 - `model_version_id` references `model_versions.id` using the default delete behavior (no cascade specified). A referenced model version therefore cannot normally be deleted while predictions still reference it.
@@ -296,6 +329,7 @@ Constraints and indexes:
 - Probability, when provided, must be between 0 and 1.
 - `risk_level` is restricted to `LOW`, `MEDIUM`, or `HIGH`.
 - Indexes support machine and risk-level lookups.
+- `(prediction_id, rul_threshold, thresholds_version)` is unique (a missing version counts as one value), so one risk row exists per prediction, threshold and thresholds version.
 - Both machine and prediction references use `ON DELETE CASCADE`.
 
 **Integrity note:** The current schema does not enforce that `risk_scores.machine_id` is the same machine as the machine referenced by `risk_scores.prediction_id`. Application validation or a future schema enhancement could enforce this if required.
@@ -319,7 +353,7 @@ Constraints and relationships:
 - `OPEN` alerts must have a null `acknowledged_at`.
 - `machine_id` uses `ON DELETE CASCADE`.
 - `prediction_id`, `assigned_to`, and `acknowledged_by` use `ON DELETE SET NULL`.
-- Indexes support status and machine lookups.
+- Indexes support status, machine and prediction lookups.
 
 The current check does not require `acknowledged_at` to be non-null for every acknowledged or resolved alert.
 
@@ -379,7 +413,7 @@ Relationships and constraints:
 
 ### 8.11 `knowledge_documents`
 
-**Purpose:** Stores metadata for documents that may later be used by the knowledge base.
+**Purpose:** Stores metadata for documents used by the knowledge base.
 
 Key fields include:
 
@@ -387,10 +421,49 @@ Key fields include:
 - `title`, `source`, `source_url`, `document_type`, `description`.
 - Creation and update timestamps.
 
-Indexes and scope notes:
+Constraints and indexes:
 
+- `(title, source)` is unique, so ingesting the same document twice cannot create duplicates.
 - An index supports document-type lookups.
-- This table stores **document metadata**. The current schema does not itself define document chunks, vector embeddings, or vector-search indexes.
+- This table stores **document metadata only**; text chunks and embeddings are in `knowledge_chunks`.
+
+### 8.12 `explanations`
+
+**Purpose:** Stores the top SHAP contributors for a stored prediction, so explanation history does not have to be recomputed.
+
+Key fields include:
+
+- `id` — `BIGSERIAL` primary key.
+- `prediction_id` — foreign key to `predictions.id` (`ON DELETE CASCADE`).
+- `contribution_rank` — positive rank, 1 being the largest absolute contribution.
+- `feature` — exact model input feature name (for example `sensor_11_rolling_mean_5`).
+- `sensor` — base sensor the feature belongs to, used for sensor-level display; may be null.
+- `shap_value` — signed SHAP value.
+- `created_at` — timestamp.
+
+Constraints:
+
+- `(prediction_id, feature)` and `(prediction_id, contribution_rank)` are unique.
+
+### 8.13 `knowledge_chunks`
+
+**Purpose:** Stores text chunks of knowledge documents and their pgvector embeddings for retrieval-augmented generation.
+
+Key fields include:
+
+- `id` — `BIGSERIAL` primary key.
+- `document_id` — foreign key to `knowledge_documents.id` (`ON DELETE CASCADE`).
+- `chunk_index` — position of the chunk within the document (0 or greater).
+- `content` — chunk text.
+- `metadata` — JSONB retrieval metadata (page, section, sensor tags and similar).
+- `embedding` — `vector(384)`; may be null until the chunk is embedded.
+- `embedding_model` — name of the model that produced the embedding.
+
+Constraints and indexes:
+
+- `(document_id, chunk_index)` is unique.
+- An HNSW index on `embedding` (cosine distance) supports similarity search.
+- **The dimension 384 must match the embedding model the team chooses.** Change it in the schema before the first ingestion if a different model is used.
 
 ## 9. Foreign-key relationship reference
 
@@ -410,8 +483,10 @@ Indexes and scope notes:
 | `chat_sessions.user_id` | `users.id` | CASCADE |
 | `chat_sessions.machine_id` | `machines.id` | SET NULL |
 | `chat_messages.session_id` | `chat_sessions.id` | CASCADE |
+| `explanations.prediction_id` | `predictions.id` | CASCADE |
+| `knowledge_chunks.document_id` | `knowledge_documents.id` | CASCADE |
 
-`knowledge_documents` has no foreign-key relationship to these tables in the current schema.
+`knowledge_documents` is referenced only by `knowledge_chunks`.
 
 ## 10. Verification queries
 
@@ -441,10 +516,12 @@ UNION ALL SELECT 'maintenance_records', COUNT(*) FROM maintenance_records
 UNION ALL SELECT 'chat_sessions', COUNT(*) FROM chat_sessions
 UNION ALL SELECT 'chat_messages', COUNT(*) FROM chat_messages
 UNION ALL SELECT 'knowledge_documents', COUNT(*) FROM knowledge_documents
+UNION ALL SELECT 'explanations', COUNT(*) FROM explanations
+UNION ALL SELECT 'knowledge_chunks', COUNT(*) FROM knowledge_chunks
 ORDER BY table_name;
 ```
 
-The expected counts depend on whether the seed script has been run and whether development data has subsequently been added. Previously observed seed counts were:
+The expected counts depend on whether the seed script has been run and whether development data has subsequently been added. Immediately after a first start with the seed, the counts are:
 
 | Table | Previously observed count |
 |---|---:|
@@ -459,8 +536,10 @@ The expected counts depend on whether the seed script has been run and whether d
 | `maintenance_records` | 0 |
 | `chat_sessions` | 0 |
 | `chat_messages` | 0 |
+| `explanations` | 0 |
+| `knowledge_chunks` | 0 |
 
-These are historical setup observations, not a guarantee of the current database state.
+These are the expected values for a freshly created database, not a guarantee of the current state of your database.
 
 ### 10.3 Inspect sensor readings
 
@@ -527,14 +606,14 @@ ORDER BY table_name, ordinal_position;
 
 ## 11. Troubleshooting
 
-### PostgreSQL port 5432 is already in use
+### The host port is already in use
 
-Another PostgreSQL service may already be running on the computer.
+The database is published on port `5433` by default (`POSTGRES_HOST_PORT` in `.env`). Another service, often a local PostgreSQL installation, may already use that port.
 
-In Windows CMD, identify the process listening on port 5432:
+In Windows CMD, identify the process listening on port 5433:
 
 ```bat
-netstat -ano | findstr :5432
+netstat -ano | findstr :5433
 ```
 
 The final column contains a PID. To identify it:
@@ -543,7 +622,7 @@ The final column contains a PID. To identify it:
 tasklist /FI "PID eq <PID>"
 ```
 
-Replace `<PID>` with the actual process ID. Do not terminate a process until you know what it is. If a local PostgreSQL installation is already using port 5432, either stop it safely when appropriate or configure the Docker port mapping to use another host port.
+Replace `<PID>` with the actual process ID. Do not terminate a process until you know what it is. If a local PostgreSQL installation is already using port 5432, either stop it safely when appropriate or set `POSTGRES_HOST_PORT` in `.env` to another free port and run `docker compose up -d --wait` again.
 
 ### Container is not healthy or will not start
 
@@ -556,7 +635,7 @@ Check the logs for configuration errors, port conflicts, invalid environment var
 
 ### Authentication failed
 
-Confirm the configured database name, username, password, and port in the Compose file or environment configuration. Do not assume that the earlier development password is still current.
+Confirm the database name, username, password and port in your `.env` file. A volume created earlier keeps the password it was created with; changing `.env` afterwards does not change it. Either use the original password or rebuild with `docker compose down -v` (deletes local data).
 
 ### `psql` is not recognized
 
@@ -574,13 +653,13 @@ dir docs\database
 
 Make sure pgAdmin is connected to the `predictive_maintenance` database, not the default `postgres` database. Refresh the `public` schema and its Tables node.
 
-### Seed script fails due to duplicate data
+### Schema or seed was not applied
 
-Read the seed script to understand whether it is safe to run more than once. Do not repeatedly execute a non-idempotent seed script on the same database. If resetting a development database is necessary, first confirm that no data needs to be preserved.
+The SQL files in `/docker-entrypoint-initdb.d` run only when the data volume is empty. If the database already existed before you pulled these changes, rebuild it with `docker compose down -v` followed by `docker compose up -d --wait` (this deletes local data). If the container exits during first start, read `docker compose logs postgres` for the SQL error.
 
 ## 12. Development and safety notes
 
-- Keep database passwords and other secrets out of committed source files.
+- Keep database passwords and other secrets out of committed source files; use `.env` (ignored by Git) and commit only `.env.example`.
 - Use development seed records only for local testing.
 - Back up data before destructive schema changes.
 - Avoid deleting referenced parent records without understanding their foreign-key delete behavior.
@@ -590,12 +669,14 @@ Read the seed script to understand whether it is safe to run more than once. Do 
 
 ## 13. Setup completion checklist
 
-- [ ] Docker Compose PostgreSQL service starts successfully.
+- [ ] `.env` created from `.env.example`.
+- [ ] `docker compose up -d --wait` completes and the PostgreSQL service is healthy.
 - [ ] `predictive_maintenance` database is accessible.
-- [ ] `database-schema-v0.sql` has been applied.
-- [ ] All 11 expected tables exist.
+- [ ] `database-schema-v0.sql` has been applied (automatically on first start).
+- [ ] All 13 expected tables exist and the `vector` extension is installed.
 - [ ] Foreign keys and indexes are present.
-- [ ] `seed-v0.sql` has been applied if development sample data is required.
+- [ ] `seed-v0.sql` has been applied (automatically on first start) if development sample data is required.
+- [ ] `bash scripts/check_db.sh` passes.
 - [ ] Verification queries execute successfully.
 - [ ] Team members have confirmed their local connection settings.
 
