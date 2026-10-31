@@ -1,4 +1,3 @@
-
 -- ============================================================
 -- Predictive Maintenance and Decision Support System
 -- M0 Seed Data v0
@@ -140,6 +139,30 @@ WHERE m.machine_code = 'FD001-E001'
 ON CONFLICT (machine_id, model_version_id, cycle) DO NOTHING;
 
 
+-- 5B. Default risk threshold configuration (the active one)
+INSERT INTO risk_threshold_configs (
+    version,
+    horizon_cycles,
+    high_rul_max,
+    medium_rul_max,
+    high_probability_min,
+    medium_probability_min,
+    alert_rul_threshold,
+    is_active
+)
+VALUES (
+    'cfg-1',
+    30,
+    30,
+    60,
+    0.50,
+    0.20,
+    20,
+    TRUE
+)
+ON CONFLICT (version) DO NOTHING;
+
+
 -- 6. Insert illustrative risk scores
 INSERT INTO risk_scores (
     machine_id,
@@ -155,7 +178,7 @@ SELECT
     sample.risk_level,
     30,
     sample.estimated_probability,
-    'risk-rules-v0'
+    'cfg-1'
 FROM predictions AS p
 JOIN machines AS m
     ON m.id = p.machine_id

@@ -119,7 +119,7 @@ cp .env.example .env
 # 3. Start PostgreSQL with pgvector; the schema and a development seed load on first start
 docker compose up -d --wait
 
-# 4. Verify the database (13 tables, pgvector, seed data, constraints)
+# 4. Verify the database (14 tables, pgvector, seed data, constraints)
 bash scripts/check_db.sh
 ```
 
@@ -146,7 +146,7 @@ docker compose up -d --wait
 pip install pytest PyYAML jsonschema openapi-spec-validator ruff
 python -m pytest tests/contracts -q
 openapi-spec-validator docs/api/openapi.yaml
-ruff check tests
+ruff check .
 ```
 
 More detail, including troubleshooting, is in the [database setup guide](docs/database/database-setup-documentation.md).
@@ -177,16 +177,17 @@ GitHub Actions runs on every pull request to `main` and on pushes to `main`:
 │   ├── architecture/             # System architecture and integration notes
 │   ├── contracts/                # Machine Health Summary schema and example
 │   ├── database/                 # SQL schema, seed data, setup guide
-│   ├── dataset/                  # FD001 exploratory analysis and figures
+│   ├── dataset/                  # C-MAPSS exploratory analysis tables and figures
 │   ├── Knowledge/                # Knowledge-source inventory
 │   └── M0 - Literature Review and Research Gap/
 ├── frontend/                     # React application (planned)
 ├── ml/                           # Data pipeline and models (planned)
-├── notebooks/                    # FD001 exploratory analysis notebook
+├── notebooks/                    # C-MAPSS exploratory analysis (FD001–FD004)
 ├── rag/                          # Knowledge base and retrieval (planned)
 ├── scripts/check_db.sh           # Database verification
 ├── tests/contracts/              # Contract tests
 ├── docker-compose.yml            # Local PostgreSQL with pgvector
+├── docker-compose.override.yml   # Development seed data (never deployed)
 └── .env.example                  # Environment variable template
 ```
 
@@ -199,6 +200,10 @@ GitHub Actions runs on every pull request to `main` and on pushes to `main`:
 | [OpenAPI contract](docs/api/openapi.yaml) | Planned REST API |
 | [Health Summary schema](docs/contracts/health-summary-v0.schema.json) and [example](docs/contracts/health-summary-v0.example.json) | The integration contract |
 | [Database setup guide](docs/database/database-setup-documentation.md) | Schema, tables, setup, and troubleshooting |
+| [Software requirements specification](docs/srs/software-requirements-specification-v0.md) | Requirements with ids, tiers and milestone traceability |
+| [Risk and alert rules](docs/architecture/risk-and-alert-rules-v0.md) | Risk bands, alert logic and decision rules (proposed) |
+| [RAG decisions](docs/architecture/rag-decisions-v0.md) | Embedding model choice and comparison plan |
+| [Project review](docs/project-review-2026-10.md) | Validation of the external review findings |
 | [FD001 exploration findings](docs/dataset/fd001-eda-findings.md) | Dataset analysis |
 | [Literature review](docs/M0%20-%20Literature%20Review%20and%20Research%20Gap/literature-review.md) and [research gap analysis](docs/M0%20-%20Literature%20Review%20and%20Research%20Gap/research-gap-analysis.md) | Background and motivation |
 | [Knowledge-source inventory](docs/Knowledge/knowledge-source-inventory-v0.md) | Sources for the RAG knowledge base |

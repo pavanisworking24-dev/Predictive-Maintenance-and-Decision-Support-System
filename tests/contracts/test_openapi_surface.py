@@ -39,6 +39,18 @@ EXPECTED_OPERATIONS = {
     ("PATCH", "/alerts/{alert_id}"),
     ("POST", "/chat"),
     ("GET", "/chat/sessions"),
+    ("GET", "/metrics"),
+    ("GET", "/reports/fleet"),
+    ("GET", "/thresholds"),
+    ("POST", "/thresholds"),
+    ("GET", "/users"),
+    ("POST", "/users"),
+    ("PATCH", "/users/{user_id}"),
+    ("GET", "/models"),
+    ("POST", "/models/{model_version_id}/activate"),
+    ("GET", "/knowledge/documents"),
+    ("POST", "/knowledge/documents"),
+    ("DELETE", "/knowledge/documents/{document_id}"),
 }
 
 PUBLIC_OPERATIONS = {("POST", "/auth/login"), ("GET", "/health")}
@@ -48,6 +60,18 @@ RESTRICTED_OPERATIONS = {
     ("POST", "/maintenance"): {"ADMIN", "MAINTENANCE_ENGINEER"},
     ("PUT", "/maintenance/{maintenance_id}"): {"ADMIN", "MAINTENANCE_ENGINEER"},
     ("PATCH", "/alerts/{alert_id}"): {"ADMIN", "MAINTENANCE_MANAGER"},
+    # Administration: users, thresholds, model version, knowledge base (scope 5.1)
+    ("POST", "/thresholds"): {"ADMIN"},
+    ("GET", "/users"): {"ADMIN"},
+    ("POST", "/users"): {"ADMIN"},
+    ("PATCH", "/users/{user_id}"): {"ADMIN"},
+    ("GET", "/models"): {"ADMIN"},
+    ("POST", "/models/{model_version_id}/activate"): {"ADMIN"},
+    ("GET", "/knowledge/documents"): {"ADMIN"},
+    ("POST", "/knowledge/documents"): {"ADMIN"},
+    ("DELETE", "/knowledge/documents/{document_id}"): {"ADMIN"},
+    # Logs and monitoring (scope 5.1)
+    ("GET", "/metrics"): {"ADMIN"},
 }
 
 
@@ -81,6 +105,18 @@ def deref(openapi, node):
 
 def is_public(operation):
     return operation.get("security") == []
+
+
+def db_table_columns(sql, table):
+    """Return the column names of a table in the SQL schema."""
+    table_match = re.search(rf"CREATE TABLE {table} \((.*?)\n\);", sql, re.DOTALL)
+    assert table_match, f"table {table} not found in the SQL schema"
+    columns = set()
+    for line in table_match.group(1).splitlines():
+        match = re.match(r"    ([a-z_0-9]+) [A-Za-z]", line)
+        if match and match.group(1) not in {"constraint", "check", "unique", "primary"}:
+            columns.add(match.group(1))
+    return columns
 
 
 def db_check_values(sql, table, column):
@@ -249,3 +285,60 @@ def test_chat_response_requires_disclaimer(openapi):
 
     assert "disclaimer" in chat["required"]
     assert "sources" in chat["required"]
+
+
+# ---------------------------------------------------------------------------
+# Administration, reports and monitoring
+# ---------------------------------------------------------------------------
+def test_ingestion_status_matches_database(openapi, db_sql):
+    api_values = set(openapi["components"]["schemas"]["IngestionStatus"]["enum"])
+
+    assert api_values == db_check_values(
+        db_sql, "knowledge_documents", "ingestion_status"
+    )
+
+
+def test_threshold_config_fields_exist_in_database(openapi, db_sql):
+    properties = set(openapi["components"]["schemas"]["ThresholdConfig"]["properties"])
+    columns = db_table_columns(db_sql, "risk_threshold_configs")
+
+    assert properties <= columns, sorted(properties - columns)
+
+
+def test_threshold_create_requires_every_tunable_field(openapi):
+    schema = openapi["components"]["schemas"]["ThresholdConfigCreate"]
+
+    assert set(schema["required"]) == {
+        "version",
+        "horizon_cycles",
+        "high_rul_max",
+        "medium_rul_max",
+        "high_probability_min",
+        "medium_probability_min",
+        "alert_rul_threshold",
+    }
+
+
+def test_model_version_fields_exist_in_database(openapi, db_sql):
+    properties = set(openapi["components"]["schemas"]["ModelVersion"]["properties"])
+    columns = db_table_columns(db_sql, "model_versions") | {"model_version_id"}
+
+    assert properties <= columns, sorted(properties - columns)
+
+
+def test_user_schema_never_exposes_password_hash(openapi):
+    user = openapi["components"]["schemas"]["User"]
+
+    assert "password" not in user["properties"]
+    assert "password_hash" not in user["properties"]
+
+
+def test_every_role_can_read_thresholds_and_fleet_report(openapi):
+    for method, path, operation in operations(openapi):
+        if (method, path) in {("GET", "/thresholds"), ("GET", "/reports/fleet")}:
+            assert "x-allowed-roles" not in operation
+
+
+def test_risk_threshold_table_has_single_active_index(db_sql):
+    assert "uq_risk_threshold_configs_one_active" in db_sql
+    assert "REFERENCES risk_threshold_configs(version)" in db_sql

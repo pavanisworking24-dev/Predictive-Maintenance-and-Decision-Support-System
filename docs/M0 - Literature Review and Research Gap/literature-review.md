@@ -2,7 +2,7 @@ Literature Review on a Conversational Predictive Maintenance and Decision Suppor
 
 1. Introduction
 
-Predictive maintenance (PdM) has evolved from simple condition monitoring to data-driven prognostics that estimate the Remaining Useful Life (RUL) of critical assets such as aircraft engines, turbines, and industrial machinery [Jardine et al., 2006; Lei et al., 2018]. Modern PdM systems increasingly combine machine learning (ML) for RUL prediction, uncertainty quantification (UQ) to express confidence in predictions, explainable AI (XAI) to interpret model behavior, and knowledge retrieval to ground decisions in technical documentation [Cummins & Sommers, 2024]. More recently, large language models (LLMs) and retrieval-augmented generation (RAG) have been explored for conversational technical assistance and maintenance decision support [Lewis et al., 2020; Harbola & Purwar, 2025].
+Predictive maintenance (PdM) has evolved from simple condition monitoring to data-driven prognostics that estimate the Remaining Useful Life (RUL) of critical assets such as aircraft engines, turbines, and industrial machinery [Jardine et al., 2006; Lei et al., 2018]. Modern PdM systems increasingly combine machine learning (ML) for RUL prediction, uncertainty quantification (UQ) to express confidence in predictions, explainable AI (XAI) to interpret model behavior, and knowledge retrieval to ground decisions in technical documentation [Cummins et al., 2024]. More recently, large language models (LLMs) and retrieval-augmented generation (RAG) have been explored for conversational technical assistance and maintenance decision support [Lewis et al., 2020; Harbola & Purwar, 2025].
 
 This literature review examines research across these areas with a focus on turbofan engine RUL prediction using the NASA C-MAPSS benchmark. The goal is to identify what has been established, where limitations persist, and where an integrated B.Tech-level system can make a reasonable contribution without over-claiming novelty.
 
@@ -10,7 +10,7 @@ This literature review examines research across these areas with a focus on turb
 
 Predictive maintenance aims to schedule maintenance based on the actual condition of equipment rather than fixed intervals, reducing downtime and costs while improving safety [Jardine et al., 2006]. Prognostics, a core component of PdM, involves estimating the future health state of a system and predicting its RUL—the time until a predefined failure threshold is reached [Lei et al., 2018].
 
-Early PdM research focused on statistical models and physics-based degradation modeling. More recent work emphasizes data-driven ML methods that learn degradation patterns from sensor time series [Ramasso & Saxena, 2014]. While many studies achieve accurate RUL estimates, a recurring limitation is the weak coupling between prognostic outputs and maintenance decision logic. Uncertainty is often under-reported, and explanations rarely connect to component-level degradation mechanisms or actionable maintenance guidance [Cummins & Sommers, 2024; Robinson, 2026].
+Early PdM research focused on statistical models and physics-based degradation modeling. More recent work emphasizes data-driven ML methods that learn degradation patterns from sensor time series [Ramasso & Saxena, 2014]. While many studies achieve accurate RUL estimates, a recurring limitation is the weak coupling between prognostic outputs and maintenance decision logic. Uncertainty is often under-reported, and explanations rarely connect to component-level degradation mechanisms or actionable maintenance guidance [Cummins et al., 2024; Robinson, 2026].
 
 3. NASA C-MAPSS and RUL Prediction
 
@@ -26,7 +26,7 @@ Traditional statistical approaches (e.g., linear regression, ARIMA) have been su
 
 Feature engineering is critical: sliding windows, temporal degradation features, and sensor selection (e.g., via tsfresh or domain knowledge) improve model accuracy [Alomari et al., 2023]. XGBoost is frequently used due to its strong performance, handling of non-linear relationships, and compatibility with SHAP for explainability [Lin et al., 2025].
 
-However, most studies optimize point-prediction accuracy and under-treat uncertainty and decision risk. Interpretability often stops at feature importance without connecting to component-level degradation or maintenance actions [Cummins & Sommers, 2024].
+However, most studies optimize point-prediction accuracy and under-treat uncertainty and decision risk. Interpretability often stops at feature importance without connecting to component-level degradation or maintenance actions [Cummins et al., 2024].
 
 5. Operating Conditions and Cross-Condition Generalization
 
@@ -46,7 +46,7 @@ A limitation is that CP guarantees marginal (average) coverage, not conditional 
 
 7. Explainable AI and SHAP for Predictive Maintenance
 
-Explainable AI (XAI) is increasingly used in PdM to build trust and support maintenance decisions [Cummins & Sommers, 2024]. SHAP (SHapley Additive exPlanations) is the dominant XAI method due to its theoretical grounding and efficiency for tree-based models [Lundberg & Lee, 2017].
+Explainable AI (XAI) is increasingly used in PdM to build trust and support maintenance decisions [Cummins et al., 2024]. SHAP (SHapley Additive exPlanations) is the dominant XAI method due to its theoretical grounding and efficiency for tree-based models [Lundberg & Lee, 2017].
 
 SHAP assigns each feature an importance value for a particular prediction, unifying several attribution methods under a game-theoretic framework. Balasubramani et al. (2024) apply SHAP to turbofan engine PHM, identifying critical sensors and components. Lin et al. (2025) pair XGBoost with SHAP for interpretable failure time estimation.
 
@@ -56,7 +56,7 @@ Limitations include:
 
 (2) sensor-level explanations are harder to act on than component-level narratives.
 
-(3) correlation between sensors can complicate interpretation [Cummins & Sommers, 2024].
+(3) correlation between sensors can complicate interpretation [Cummins et al., 2024].
 
 8. Sensor, Component, and Degradation Knowledge
 
@@ -68,13 +68,13 @@ This gap motivates our project's sensor-to-component mapping based on C-MAPSS do
 
 Retrieval-augmented generation (RAG) combines parametric LLM memory with non-parametric retrieval from external knowledge bases, improving factual accuracy in knowledge-intensive tasks [Lewis et al., 2020]. In maintenance, RAG is used over computerized maintenance management system (CMMS) records and operational manuals for Q&A and prescriptive recommendations [Springer, 2026; Harbola & Purwar, 2025].
 
-RAG improves grounding but does not eliminate hallucination risk; retrieved documents must be cited, and LLM outputs should be constrained to advisory roles [Cummins & Sommers, 2024]. Most RAG-PdM prototypes focus on fault classification or Q&A, not integration with quantitative RUL, uncertainty, and SHAP [Harbola & Purwar, 2025].
+RAG improves grounding but does not eliminate hallucination risk; retrieved documents must be cited, and LLM outputs should be constrained to advisory roles [Cummins et al., 2024]. Most RAG-PdM prototypes focus on fault classification or Q&A, not integration with quantitative RUL, uncertainty, and SHAP [Harbola & Purwar, 2025].
 
 10. LLM-Based Conversational Decision Support
 
 LLMs are being applied to industrial maintenance for anomaly explanation, work-instruction generation, and prescriptive recommendations [Harbola & Purwar, 2025]. Some systems serialize sensor data into natural language for LLM processing, while others use RAG to retrieve procedures before generating step-by-step guidance [Springer, 2026].
 
-Limitations include hallucination, numerical inconsistency, lack of domain grounding, and blurred boundaries between advisory and autonomous control [Cummins & Sommers, 2024]. Few systems integrate LLMs with formal uncertainty/risk metrics or SHAP-based explanations [Masand et al., 2025].
+Limitations include hallucination, numerical inconsistency, lack of domain grounding, and blurred boundaries between advisory and autonomous control [Cummins et al., 2024]. Few systems integrate LLMs with formal uncertainty/risk metrics or SHAP-based explanations [Masand et al., 2025].
 
 11. Integrated Predictive Maintenance Decision Support
 
@@ -94,7 +94,7 @@ C-MAPSS benchmarking, RUL prediction with ML/XGBoost, split CP for uncertainty, 
 
 2.What remains difficult?
 
-Cross-subset generalization, component-level interpretation of SHAP, and coupling uncertainty with decision risk are underexplored [Robinson, 2026; Cummins & Sommers, 2024].
+Cross-subset generalization, component-level interpretation of SHAP, and coupling uncertainty with decision risk are underexplored [Robinson, 2026; Cummins et al., 2024].
 
 3.Recurring limitations:
 
@@ -110,7 +110,7 @@ Prediction, uncertainty, explainability, retrieval, and conversation are often s
 
 5.Evaluation gaps:
 
-Few studies evaluate numerical faithfulness, uncertainty communication, retrieval grounding, and decision-support usefulness jointly [Cummins & Sommers, 2024].
+Few studies evaluate numerical faithfulness, uncertainty communication, retrieval grounding, and decision-support usefulness jointly [Cummins et al., 2024].
 
 6.Realistic B.Tech gap:
 

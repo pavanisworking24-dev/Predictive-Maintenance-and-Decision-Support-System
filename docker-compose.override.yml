@@ -1,0 +1,11 @@
+# Development-only additions. Docker Compose merges this file automatically
+# when you run "docker compose up". It is NOT used when you name the base file
+# explicitly (docker compose -f docker-compose.yml ...), which is how
+# deployments must start the stack.
+
+services:
+  postgres:
+    volumes:
+      # Demo data: one engine, three readings and predictions, a default risk
+      # threshold configuration. Never load this into a deployed database.
+      - ./docs/database/seed-v0.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro

@@ -64,7 +64,9 @@ docker compose up -d --wait
 docker compose ps
 ```
 
-`--wait` returns once the database is healthy. On the **first start with an empty volume**, PostgreSQL automatically runs `docs/database/database-schema-v0.sql` and then `docs/database/seed-v0.sql` (mounted as `01-schema.sql` and `02-seed.sql`), so sections 5 and 6 are only needed for manual or repeat runs. These scripts do not run again when the volume already contains data.
+`--wait` returns once the database is healthy. On the **first start with an empty volume**, PostgreSQL automatically runs `docs/database/database-schema-v0.sql` and then `docs/database/seed-v0.sql` (mounted as `01-schema.sql` by `docker-compose.yml` and as `02-seed.sql` by `docker-compose.override.yml`), so sections 5 and 6 are only needed for manual or repeat runs. These scripts do not run again when the volume already contains data.
+
+The seed is added by `docker-compose.override.yml`, which Compose merges automatically for local development. A deployment must start the stack with `docker compose -f docker-compose.yml up -d --wait`, which never loads demo data.
 
 To rebuild the database from scratch (deletes all local data):
 
@@ -144,7 +146,7 @@ Or execute `seed-v0.sql` in pgAdmin's Query Tool while connected to `predictive_
 
 Seed data is for development and verification only.
 
-To check the whole setup (13 tables, pgvector, seed counts, idempotent seed, one active model per dataset), run from the repository root in Git Bash, WSL, Linux or macOS:
+To check the whole setup (14 tables, pgvector, seed counts, idempotent seed, one active model per dataset, one active threshold configuration), run from the repository root in Git Bash, WSL, Linux or macOS:
 
 ```bash
 bash scripts/check_db.sh
@@ -152,7 +154,7 @@ bash scripts/check_db.sh
 
 ## 7. Database schema overview
 
-The schema contains **13 tables** and enables the `pgcrypto` and `vector` (pgvector) extensions:
+The schema contains **14 tables** and enables the `pgcrypto` and `vector` (pgvector) extensions:
 
 | Table | Purpose |
 |---|---|
@@ -161,6 +163,7 @@ The schema contains **13 tables** and enables the `pgcrypto` and `vector` (pgvec
 | `sensor_readings` | Stores sensor and operating-setting values by machine cycle. |
 | `model_versions` | Records model metadata and artifact/version information. |
 | `predictions` | Stores predicted RUL values and optional uncertainty bounds. |
+| `risk_threshold_configs` | Versioned, admin-managed risk and alert thresholds; exactly one configuration is active. |
 | `risk_scores` | Stores risk level and threshold/probability information associated with predictions. |
 | `explanations` | Stores the top SHAP contributors (feature, sensor, SHAP value, rank) for a prediction. |
 | `alerts` | Stores machine alerts, severity, status, acknowledgement, and assignment. |
@@ -310,6 +313,27 @@ Constraints and indexes:
 - `machine_id` references `machines.id` with `ON DELETE CASCADE`.
 - `model_version_id` references `model_versions.id` using the default delete behavior (no cascade specified). A referenced model version therefore cannot normally be deleted while predictions still reference it.
 
+### 8.5B `risk_threshold_configs`
+
+**Purpose:** Stores the risk and alert thresholds as immutable, numbered versions. Administrators create a new version instead of editing an old one, so every stored risk score can still be traced to the thresholds that produced it. The rules that use these values are in `docs/architecture/risk-and-alert-rules-v0.md`.
+
+Key fields include:
+
+- `id` — `BIGSERIAL` primary key.
+- `version` — unique label such as `cfg-1`; stored in `risk_scores.thresholds_version`.
+- `horizon_cycles` — the horizon N of the probability P(RUL ≤ N).
+- `high_rul_max`, `medium_rul_max` — predicted-RUL limits for HIGH and MEDIUM.
+- `high_probability_min`, `medium_probability_min` — probability limits for HIGH and MEDIUM.
+- `alert_rul_threshold` — predicted RUL at or below which an RUL alert is created.
+- `is_active`, `created_by`, `created_at`.
+
+Constraints and indexes:
+
+- `version` is unique.
+- `high_rul_max < medium_rul_max` and `medium_probability_min < high_probability_min`.
+- A partial unique index (`uq_risk_threshold_configs_one_active`) allows only one active configuration.
+- `risk_scores.thresholds_version` references `version`, so a risk score cannot point to a configuration that does not exist. The development seed creates `cfg-1` (horizon 30, HIGH at RUL ≤ 30 or probability ≥ 0.50, MEDIUM at RUL ≤ 60 or probability ≥ 0.20, alert at RUL ≤ 20).
+
 ### 8.6 `risk_scores`
 
 **Purpose:** Stores a risk classification associated with a machine and prediction.
@@ -329,6 +353,7 @@ Constraints and indexes:
 - Probability, when provided, must be between 0 and 1.
 - `risk_level` is restricted to `LOW`, `MEDIUM`, or `HIGH`.
 - Indexes support machine and risk-level lookups.
+- `thresholds_version` references `risk_threshold_configs.version`.
 - `(prediction_id, rul_threshold, thresholds_version)` is unique (a missing version counts as one value), so one risk row exists per prediction, threshold and thresholds version.
 - Both machine and prediction references use `ON DELETE CASCADE`.
 
@@ -425,6 +450,7 @@ Constraints and indexes:
 
 - `(title, source)` is unique, so ingesting the same document twice cannot create duplicates.
 - An index supports document-type lookups.
+- `ingestion_status` is `PENDING`, `INGESTED` or `FAILED` and tracks the admin upload workflow.
 - This table stores **document metadata only**; text chunks and embeddings are in `knowledge_chunks`.
 
 ### 8.12 `explanations`
@@ -472,6 +498,8 @@ Constraints and indexes:
 | `sensor_readings.machine_id` | `machines.id` | CASCADE |
 | `predictions.machine_id` | `machines.id` | CASCADE |
 | `predictions.model_version_id` | `model_versions.id` | Default / NO ACTION |
+| `risk_threshold_configs.created_by` | `users.id` | SET NULL |
+| `risk_scores.thresholds_version` | `risk_threshold_configs.version` | Default / NO ACTION |
 | `risk_scores.machine_id` | `machines.id` | CASCADE |
 | `risk_scores.prediction_id` | `predictions.id` | CASCADE |
 | `alerts.machine_id` | `machines.id` | CASCADE |
@@ -511,6 +539,7 @@ UNION ALL SELECT 'sensor_readings', COUNT(*) FROM sensor_readings
 UNION ALL SELECT 'model_versions', COUNT(*) FROM model_versions
 UNION ALL SELECT 'predictions', COUNT(*) FROM predictions
 UNION ALL SELECT 'risk_scores', COUNT(*) FROM risk_scores
+UNION ALL SELECT 'risk_threshold_configs', COUNT(*) FROM risk_threshold_configs
 UNION ALL SELECT 'alerts', COUNT(*) FROM alerts
 UNION ALL SELECT 'maintenance_records', COUNT(*) FROM maintenance_records
 UNION ALL SELECT 'chat_sessions', COUNT(*) FROM chat_sessions
@@ -531,6 +560,7 @@ The expected counts depend on whether the seed script has been run and whether d
 | `model_versions` | 1 |
 | `predictions` | 3 |
 | `risk_scores` | 3 |
+| `risk_threshold_configs` | 1 |
 | `knowledge_documents` | 1 |
 | `alerts` | 0 |
 | `maintenance_records` | 0 |
@@ -673,7 +703,7 @@ The SQL files in `/docker-entrypoint-initdb.d` run only when the data volume is 
 - [ ] `docker compose up -d --wait` completes and the PostgreSQL service is healthy.
 - [ ] `predictive_maintenance` database is accessible.
 - [ ] `database-schema-v0.sql` has been applied (automatically on first start).
-- [ ] All 13 expected tables exist and the `vector` extension is installed.
+- [ ] All 14 expected tables exist and the `vector` extension is installed.
 - [ ] Foreign keys and indexes are present.
 - [ ] `seed-v0.sql` has been applied (automatically on first start) if development sample data is required.
 - [ ] `bash scripts/check_db.sh` passes.
