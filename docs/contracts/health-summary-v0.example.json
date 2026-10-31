@@ -14,10 +14,10 @@
   },
   "rul_threshold_probability": {
     "threshold_cycles": 30,
-    "probability": 0.81
+    "probability": 0.98
   },
   "risk_level": "HIGH",
-  "thresholds_version": "cfg-2",
+  "thresholds_version": "cfg-1",
   "trend": "degrading",
   "top_contributors": [
     {

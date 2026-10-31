@@ -6,8 +6,8 @@
 -- Project:
 -- Conversational Predictive Maintenance and Decision Support System
 --
--- Schema version: v0 (revision 1)
--- Core entities: 13
+-- Schema version: v0 (revision 2)
+-- Core entities: 14
 --
 -- Revision 1 changes (no deployed database existed when these were made):
 --   * pgvector extension and knowledge_chunks table (RAG embeddings)
@@ -17,6 +17,12 @@
 --   * model_versions.calibration_version (links a model to its conformal
 --     calibration), coverage_level restricted to 0 < level < 1
 --   * removed a duplicate index on sensor_readings
+--
+-- Revision 2 changes:
+--   * risk_threshold_configs: versioned, admin-managed risk and alert thresholds
+--     (exactly one active configuration); risk_scores.thresholds_version now
+--     references it
+--   * knowledge_documents.ingestion_status for the admin knowledge-base workflow
 -- Once the backend exists, further changes must go through migrations.
 -- ============================================================
 
@@ -267,6 +273,57 @@ CREATE TABLE predictions (
 
 
 -- ============================================================
+-- 5B. RISK THRESHOLD CONFIGS (versioned, admin-managed)
+-- ============================================================
+
+CREATE TABLE risk_threshold_configs (
+    id BIGSERIAL PRIMARY KEY,
+
+    -- Public version label, for example cfg-1. Stored with every risk score.
+    version VARCHAR(50) NOT NULL UNIQUE,
+
+    -- Horizon N used for the probability P(RUL <= N)
+    horizon_cycles INTEGER NOT NULL
+        CHECK (horizon_cycles >= 1),
+
+    -- HIGH when predicted RUL <= high_rul_max
+    --           or P(RUL <= horizon_cycles) >= high_probability_min
+    high_rul_max INTEGER NOT NULL
+        CHECK (high_rul_max >= 0),
+
+    -- MEDIUM when predicted RUL <= medium_rul_max
+    --             or P(RUL <= horizon_cycles) >= medium_probability_min
+    medium_rul_max INTEGER NOT NULL
+        CHECK (medium_rul_max >= 0),
+
+    high_probability_min DOUBLE PRECISION NOT NULL
+        CHECK (high_probability_min > 0 AND high_probability_min <= 1),
+
+    medium_probability_min DOUBLE PRECISION NOT NULL
+        CHECK (medium_probability_min > 0 AND medium_probability_min <= 1),
+
+    -- An RUL_BELOW_THRESHOLD alert is created when predicted RUL
+    -- falls to or below this value
+    alert_rul_threshold INTEGER NOT NULL
+        CHECK (alert_rul_threshold >= 0),
+
+    is_active BOOLEAN NOT NULL DEFAULT FALSE,
+
+    created_by UUID
+        REFERENCES users(id)
+        ON DELETE SET NULL,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT chk_risk_threshold_order
+        CHECK (
+            high_rul_max < medium_rul_max
+            AND medium_probability_min < high_probability_min
+        )
+);
+
+
+-- ============================================================
 -- 6. RISK SCORES
 -- ============================================================
 
@@ -304,7 +361,9 @@ CREATE TABLE risk_scores (
             )
         ),
 
-    thresholds_version VARCHAR(50),
+    -- Configuration that produced this score (NULL only for legacy rows)
+    thresholds_version VARCHAR(50)
+        REFERENCES risk_threshold_configs(version),
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
@@ -494,6 +553,16 @@ CREATE TABLE knowledge_documents (
 
     description TEXT,
 
+    -- PENDING until the chunks and embeddings have been created
+    ingestion_status VARCHAR(20) NOT NULL DEFAULT 'PENDING'
+        CHECK (
+            ingestion_status IN (
+                'PENDING',
+                'INGESTED',
+                'FAILED'
+            )
+        ),
+
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -590,6 +659,12 @@ CREATE INDEX idx_predictions_machine_cycle
 
 CREATE INDEX idx_predictions_model
     ON predictions(model_version_id);
+
+
+-- Risk threshold configs: exactly one active configuration
+CREATE UNIQUE INDEX uq_risk_threshold_configs_one_active
+    ON risk_threshold_configs(is_active)
+    WHERE is_active;
 
 
 -- Risk scores

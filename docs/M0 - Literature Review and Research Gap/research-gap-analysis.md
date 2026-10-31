@@ -28,11 +28,11 @@ Conformal prediction (CP) provides valid RUL intervals on C-MAPSS [Javanmardi & 
 
 SHAP / XAI
 
-SHAP is dominant in PdM XAI; component-level mapping is limited [Balasubramani et al., 2024; Cummins & Sommers, 2024].
+SHAP is dominant in PdM XAI; component-level mapping is limited [Balasubramani et al., 2024; Cummins et al., 2024].
 
 Sensor-Component Interpretation
 
-Few studies systematically map SHAP-important sensors to components/degradation mechanisms [Scientific Reports, 2025].
+Few studies systematically map SHAP-important sensors to components/degradation mechanisms [Balasubramani et al., 2024].
 
 RAG
 
@@ -102,7 +102,7 @@ Existing studies do not jointly evaluate:
 
 - Usefulness of final decision support
 
-[Cummins & Sommers, 2024; Robinson, 2026].
+[Cummins et al., 2024; Robinson, 2026].
 
 4. Candidate Research Gaps
 

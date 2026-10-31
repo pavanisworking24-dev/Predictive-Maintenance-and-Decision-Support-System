@@ -18,7 +18,7 @@ Dataset / topic relevance: Split conformal prediction for C-MAPSS RUL.
 
 Dataset / topic relevance: Risk-aware CQR intervals on C-MAPSS.
 
-5. Lundberg, S.M., Lee, S.I. (2017). A Unified Approach to Interpreting Model Predictions. NeurIPS 2017. DOI not verified.
+5. Lundberg, S.M., Lee, S.I. (2017). A Unified Approach to Interpreting Model Predictions. Advances in Neural Information Processing Systems 30 (NeurIPS 2017). arXiv:1705.07874 (DOI 10.48550/arXiv.1705.07874). NeurIPS proceedings papers have no publisher DOI.
 
 Dataset / topic relevance: Foundational SHAP paper.
 
@@ -34,7 +34,7 @@ Dataset / topic relevance: XGBoost + SHAP for PdM.
 
 Dataset / topic relevance: Interpretable RUL on C-MAPSS.
 
-9. Lewis, P., Guu, K., Lomeli, M., et al.(2020). Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks. NeurIPS 2020. DOI not verified.
+9. Lewis, P., Perez, E., Piktus, A., et al. (2020). Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks. Advances in Neural Information Processing Systems 33 (NeurIPS 2020). arXiv:2005.11401 (DOI 10.48550/arXiv.2005.11401). NeurIPS proceedings papers have no publisher DOI.
 
 Dataset / topic relevance: Foundational RAG paper.
 
@@ -42,11 +42,11 @@ Dataset / topic relevance: Foundational RAG paper.
 
 Dataset / topic relevance:RAG + LLM for maintenance.
 
-11.Cummins, J., Sommers, T. (2024). Explainable Predictive Maintenance: A Survey of Current Methods, Challenges and Opportunities. arXiv:2401.07871 / IEEE Access. DOI not verified.
+11. Cummins, L., Sommers, A., Ramezani, S.B., Mittal, S., Jabour, J., Seale, M., Rahimi, S. (2024). Explainable Predictive Maintenance: A Survey of Current Methods, Challenges and Opportunities. IEEE Access, 12, 57574–57602. DOI: 10.1109/ACCESS.2024.3391130. (Preprint: arXiv:2401.07871.)
 
 Dataset / topic relevance: XAI-in-PdM survey.
 
-12. Shafer, G., Vovk, V. (2008). A tutorial on conformal prediction. Journal of Machine Learning Research (JMLR), 9, 371–421. DOI not verified.
+12. Shafer, G., Vovk, V. (2008). A tutorial on conformal prediction. Journal of Machine Learning Research (JMLR), 9, 371–421. URL: https://jmlr.org/papers/v9/shafer08a.html (JMLR assigns no DOI). Preprint: arXiv:0706.3188.
 
 Dataset / topic relevance: Foundational CP tutorial.
 
@@ -56,11 +56,11 @@ Dataset / topic relevance: RAG over CMMS + manual for maintenance Q&A.
 
 Supporting References
 
-14. Jardine, A.K.S., Lin, D., Banjevic, D.(2006). A review on machinery diagnostics and prognostics implementing condition-based maintenance. Mechanical Systems and Signal Processing. DOI not verified.
+14. Jardine, A.K.S., Lin, D., Banjevic, D. (2006). A review on machinery diagnostics and prognostics implementing condition-based maintenance. Mechanical Systems and Signal Processing, 20(7), 1483–1510. DOI: 10.1016/j.ymssp.2005.09.012.
 
 Dataset / topic relevance:Foundational PdM survey.
 
-15. Lei, Y., Li, N., Guo, L., et al. (2018). Machinery health prognostics: A systematic review from data acquisition to RUL prediction. Mechanical Systems and Signal Processing. DOI not verified.
+15. Lei, Y., Li, N., Guo, L., Li, N., Yan, T., Lin, J. (2018). Machinery health prognostics: A systematic review from data acquisition to RUL prediction. Mechanical Systems and Signal Processing, 104, 799–834. DOI: 10.1016/j.ymssp.2017.11.016.
 
 Dataset / topic relevance:Comprehensive RUL review.
 
@@ -86,7 +86,7 @@ URL: https://data.phmsociety.org/nasa/.
 
 Dataset / topic relevance:Mirror of NASA PCoE datasets.
 
-20. Frederick, D., DeCastro, J., Litt, J. (2007). User's guide for C-MAPSS. NASA/TM-2007-215026. DOI not verified.
+20. Frederick, D.K., DeCastro, J.A., Litt, J.S. (2007). User's Guide for the Commercial Modular Aero-Propulsion System Simulation (C-MAPSS). NASA/TM-2007-215026. NASA Technical Reports Server: https://ntrs.nasa.gov/citations/20070034949.
 
 Dataset / topic relevance: C-MAPSS simulation tool documentation.
 
@@ -122,16 +122,18 @@ Confidence in research gap
 
 High — No verified counter-example found; multiple papers support fragmented integration.
 
-Remaining items requiring manual verification
+Verification status (checked 21 October 2026)
 
-Exact DOI for Lundberg & Lee (2017) NeurIPS paper.
+Identifiers confirmed against the publisher, DOAJ, arXiv, JMLR or NASA NTRS pages: entries 5, 9, 11, 12, 14, 15 and 20. Two author lists were wrong in the earlier draft and are corrected: entry 9 (the authors are Lewis, Perez, Piktus and others) and entry 11 (the first authors are Logan Cummins and Alexander Sommers).
 
-Exact DOI for Lewis et al. (2020) NeurIPS RAG paper.
+Still to verify manually before the final report:
 
-Full author list and DOI for Cummins & Sommers (2024) survey.
+Entry 13 (Springer, 2026): the author names are missing; replace the publisher name with the authors and check the DOI.
 
-Exact metrics and operating conditions for Balasubramani et al. (2024) AIAA paper.
+Entry 16 (IJRASET, 2026): the venue has weak peer-review standing. Keep it only as a pointer to related work and do not use it as the sole support for a claim.
 
-Full bibliographic details for IJRASET (2026) and Masand et al. (2025) papers.
+Entry 17 (Masand et al., 2025): full bibliographic details and DOI.
 
-Confirm FD002/FD004 operating condition counts in Saxena et al. (2008).
+Entries 1 to 4, 6 to 8 and 10: their DOIs and arXiv numbers were not re-checked in this pass.
+
+Exact metrics and operating conditions for Balasubramani et al. (2024), and the FD002/FD004 operating-condition counts in Saxena et al. (2008).

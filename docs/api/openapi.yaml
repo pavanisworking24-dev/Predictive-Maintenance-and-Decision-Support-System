@@ -17,6 +17,11 @@ info:
     roles; operations without it are open to all authenticated roles
     (ADMIN, MAINTENANCE_MANAGER, MAINTENANCE_ENGINEER).
 
+    Administration (users, model versions, knowledge base, operational
+    metrics) is limited to ADMIN; creating a new risk threshold
+    configuration is also ADMIN only, while every role may read the
+    thresholds and the fleet report.
+
     Paths differ from the first scope draft as follows:
     GET /machines/{machine_id}/sensor-readings replaces
     GET /machines/{id}/history, and
@@ -51,7 +56,11 @@ tags:
   - name: Assistant
     description: Conversational decision-support assistant
   - name: Platform
-    description: Service health
+    description: Service health and operational metrics
+  - name: Administration
+    description: Users, risk thresholds, model versions and the knowledge base (Admin only, except reading thresholds)
+  - name: Reports
+    description: Fleet report
 
 security:
   - bearerAuth: []
@@ -639,6 +648,353 @@ paths:
         "500":
           $ref: "#/components/responses/InternalServerError"
 
+  /metrics:
+    get:
+      tags: [Platform]
+      summary: Operational metrics
+      operationId: getMetrics
+      description: >
+        Basic monitoring: request counts, error counts and API latency
+        percentiles since the service started.
+      x-allowed-roles: [ADMIN]
+      responses:
+        "200":
+          description: Metrics retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperationalMetrics"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /reports/fleet:
+    get:
+      tags: [Reports]
+      summary: Fleet report
+      operationId: getFleetReport
+      description: >
+        Counts per risk level, RUL statistics and open alerts for the fleet,
+        optionally for one dataset, using the active risk threshold
+        configuration. All roles may read it.
+      parameters:
+        - name: dataset_id
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/DatasetId"
+        - name: top
+          in: query
+          required: false
+          description: Number of highest-risk machines to list.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 10
+      responses:
+        "200":
+          description: Report generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FleetReport"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /thresholds:
+    get:
+      tags: [Administration]
+      summary: List risk threshold configurations
+      operationId: listThresholds
+      description: >
+        All versions, newest first, and the version that is currently active.
+        Readable by every role so that screens can show which thresholds
+        produced a risk level.
+      responses:
+        "200":
+          description: Configurations retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ThresholdConfigListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      tags: [Administration]
+      summary: Create and activate a new risk threshold configuration
+      operationId: createThresholdConfig
+      description: >
+        Versions are immutable. Creating a configuration makes it the active
+        one; earlier versions stay available because stored risk scores refer
+        to them.
+      x-allowed-roles: [ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ThresholdConfigCreate"
+      responses:
+        "201":
+          description: Configuration created and activated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ThresholdConfig"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /users:
+    get:
+      tags: [Administration]
+      summary: List users
+      operationId: listUsers
+      x-allowed-roles: [ADMIN]
+      parameters:
+        - name: role
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/UserRole"
+        - name: is_active
+          in: query
+          required: false
+          schema:
+            type: boolean
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Users retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      tags: [Administration]
+      summary: Create a user
+      operationId: createUser
+      x-allowed-roles: [ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserCreate"
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /users/{user_id}:
+    parameters:
+      - $ref: "#/components/parameters/UserId"
+    patch:
+      tags: [Administration]
+      summary: Update a user (role, active flag, name or password)
+      operationId: updateUser
+      description: Deactivate a user with is_active=false instead of deleting the account.
+      x-allowed-roles: [ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserUpdate"
+      responses:
+        "200":
+          description: User updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /models:
+    get:
+      tags: [Administration]
+      summary: List registered model versions
+      operationId: listModelVersions
+      x-allowed-roles: [ADMIN]
+      parameters:
+        - name: dataset_id
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/DatasetId"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Model versions retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelVersionListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /models/{model_version_id}/activate:
+    parameters:
+      - $ref: "#/components/parameters/ModelVersionId"
+    post:
+      tags: [Administration]
+      summary: Activate a model version
+      operationId: activateModelVersion
+      description: >
+        Makes this version the active one for its dataset; the previously
+        active version of that dataset is deactivated in the same step.
+      x-allowed-roles: [ADMIN]
+      responses:
+        "200":
+          description: Model version activated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelVersion"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /knowledge/documents:
+    get:
+      tags: [Administration]
+      summary: List knowledge-base documents
+      operationId: listKnowledgeDocuments
+      x-allowed-roles: [ADMIN]
+      parameters:
+        - name: ingestion_status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/IngestionStatus"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: Documents retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeDocumentListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+    post:
+      tags: [Administration]
+      summary: Upload a knowledge-base document
+      operationId: uploadKnowledgeDocument
+      description: >
+        Stores the document and queues it for ingestion (parsing, chunking,
+        embedding). The response is 202 with status PENDING; poll the list
+        endpoint for INGESTED or FAILED.
+      x-allowed-roles: [ADMIN]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/KnowledgeDocumentUpload"
+      responses:
+        "202":
+          description: Document accepted for ingestion
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KnowledgeDocument"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /knowledge/documents/{document_id}:
+    parameters:
+      - $ref: "#/components/parameters/DocumentId"
+    delete:
+      tags: [Administration]
+      summary: Delete a knowledge-base document and its chunks
+      operationId: deleteKnowledgeDocument
+      x-allowed-roles: [ADMIN]
+      responses:
+        "204":
+          description: Document deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
 components:
   securitySchemes:
     bearerAuth:
@@ -673,6 +1029,28 @@ components:
         type: integer
         format: int64
         minimum: 1
+    UserId:
+      name: user_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ModelVersionId:
+      name: model_version_id
+      in: path
+      required: true
+      description: Internal model version id (model_versions.id).
+      schema:
+        type: string
+        format: uuid
+    DocumentId:
+      name: document_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     AlertId:
       name: alert_id
       in: path
@@ -1475,6 +1853,434 @@ components:
           type: integer
           minimum: 0
 
+    IngestionStatus:
+      type: string
+      enum: [PENDING, INGESTED, FAILED]
+
+    User:
+      type: object
+      additionalProperties: false
+      required: [user_id, name, email, role, is_active, created_at]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 100
+        email:
+          type: string
+          format: email
+        role:
+          $ref: "#/components/schemas/UserRole"
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    UserCreate:
+      type: object
+      additionalProperties: false
+      required: [name, email, password, role]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+          minLength: 10
+        role:
+          $ref: "#/components/schemas/UserRole"
+
+    UserUpdate:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        role:
+          $ref: "#/components/schemas/UserRole"
+        is_active:
+          type: boolean
+        password:
+          type: string
+          format: password
+          minLength: 10
+
+    UserListResponse:
+      type: object
+      additionalProperties: false
+      required: [items, total, limit, offset]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/User"
+        total:
+          type: integer
+          minimum: 0
+        limit:
+          type: integer
+          minimum: 1
+        offset:
+          type: integer
+          minimum: 0
+
+    ThresholdConfig:
+      type: object
+      additionalProperties: false
+      required:
+        - version
+        - horizon_cycles
+        - high_rul_max
+        - medium_rul_max
+        - high_probability_min
+        - medium_probability_min
+        - alert_rul_threshold
+        - is_active
+        - created_at
+      properties:
+        version:
+          type: string
+          example: cfg-1
+        horizon_cycles:
+          type: integer
+          minimum: 1
+          description: Horizon N for the probability P(RUL <= N).
+        high_rul_max:
+          type: integer
+          minimum: 0
+          description: HIGH when predicted RUL is at or below this value.
+        medium_rul_max:
+          type: integer
+          minimum: 0
+          description: MEDIUM when predicted RUL is at or below this value.
+        high_probability_min:
+          type: number
+          exclusiveMinimum: true
+          minimum: 0
+          maximum: 1
+        medium_probability_min:
+          type: number
+          exclusiveMinimum: true
+          minimum: 0
+          maximum: 1
+        alert_rul_threshold:
+          type: integer
+          minimum: 0
+          description: An RUL_BELOW_THRESHOLD alert is created at or below this RUL.
+        is_active:
+          type: boolean
+        created_by:
+          type: string
+          format: uuid
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    ThresholdConfigCreate:
+      type: object
+      additionalProperties: false
+      description: >
+        high_rul_max must be smaller than medium_rul_max, and
+        medium_probability_min smaller than high_probability_min.
+      required:
+        - version
+        - horizon_cycles
+        - high_rul_max
+        - medium_rul_max
+        - high_probability_min
+        - medium_probability_min
+        - alert_rul_threshold
+      properties:
+        version:
+          type: string
+          minLength: 1
+          maxLength: 50
+          example: cfg-2
+        horizon_cycles:
+          type: integer
+          minimum: 1
+        high_rul_max:
+          type: integer
+          minimum: 0
+        medium_rul_max:
+          type: integer
+          minimum: 0
+        high_probability_min:
+          type: number
+          exclusiveMinimum: true
+          minimum: 0
+          maximum: 1
+        medium_probability_min:
+          type: number
+          exclusiveMinimum: true
+          minimum: 0
+          maximum: 1
+        alert_rul_threshold:
+          type: integer
+          minimum: 0
+
+    ThresholdConfigListResponse:
+      type: object
+      additionalProperties: false
+      required: [items, active_version]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ThresholdConfig"
+        active_version:
+          type: string
+          example: cfg-1
+
+    ModelVersion:
+      type: object
+      additionalProperties: false
+      required: [model_version_id, model_name, model_type, dataset_id, version, is_active, created_at]
+      properties:
+        model_version_id:
+          type: string
+          format: uuid
+        model_name:
+          type: string
+          example: xgboost-rul-fd001
+        model_type:
+          type: string
+          example: XGBoost
+        dataset_id:
+          $ref: "#/components/schemas/DatasetId"
+        version:
+          type: string
+          example: v3
+        feature_version:
+          type: string
+          nullable: true
+        preprocessing_version:
+          type: string
+          nullable: true
+        calibration_version:
+          type: string
+          nullable: true
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+
+    ModelVersionListResponse:
+      type: object
+      additionalProperties: false
+      required: [items, total, limit, offset]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ModelVersion"
+        total:
+          type: integer
+          minimum: 0
+        limit:
+          type: integer
+          minimum: 1
+        offset:
+          type: integer
+          minimum: 0
+
+    KnowledgeDocument:
+      type: object
+      additionalProperties: false
+      required: [document_id, title, source, ingestion_status, created_at]
+      properties:
+        document_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        source:
+          type: string
+        source_url:
+          type: string
+          nullable: true
+        document_type:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        ingestion_status:
+          $ref: "#/components/schemas/IngestionStatus"
+        created_at:
+          type: string
+          format: date-time
+
+    KnowledgeDocumentUpload:
+      type: object
+      required: [file, title, source]
+      properties:
+        file:
+          type: string
+          format: binary
+        title:
+          type: string
+          maxLength: 300
+        source:
+          type: string
+          maxLength: 200
+        source_url:
+          type: string
+        document_type:
+          type: string
+          maxLength: 100
+        description:
+          type: string
+
+    KnowledgeDocumentListResponse:
+      type: object
+      additionalProperties: false
+      required: [items, total, limit, offset]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/KnowledgeDocument"
+        total:
+          type: integer
+          minimum: 0
+        limit:
+          type: integer
+          minimum: 1
+        offset:
+          type: integer
+          minimum: 0
+
+    FleetDatasetSummary:
+      type: object
+      additionalProperties: false
+      required: [dataset_id, machine_count, risk_counts]
+      properties:
+        dataset_id:
+          $ref: "#/components/schemas/DatasetId"
+        machine_count:
+          type: integer
+          minimum: 0
+        risk_counts:
+          type: object
+          additionalProperties: false
+          required: [LOW, MEDIUM, HIGH]
+          properties:
+            LOW:
+              type: integer
+              minimum: 0
+            MEDIUM:
+              type: integer
+              minimum: 0
+            HIGH:
+              type: integer
+              minimum: 0
+        rul_min:
+          type: number
+          minimum: 0
+        rul_mean:
+          type: number
+          minimum: 0
+        rul_max:
+          type: number
+          minimum: 0
+
+    FleetReport:
+      type: object
+      additionalProperties: false
+      required: [generated_at, thresholds_version, datasets, open_alerts, high_risk_machines]
+      properties:
+        generated_at:
+          type: string
+          format: date-time
+        thresholds_version:
+          type: string
+          example: cfg-1
+        datasets:
+          type: array
+          items:
+            $ref: "#/components/schemas/FleetDatasetSummary"
+        open_alerts:
+          type: integer
+          minimum: 0
+        high_risk_machines:
+          type: array
+          description: Highest-risk machines, lowest predicted RUL first.
+          items:
+            $ref: "#/components/schemas/RiskSummaryItem"
+
+    EndpointMetrics:
+      type: object
+      additionalProperties: false
+      required: [method, path, request_count, error_count]
+      properties:
+        method:
+          type: string
+          example: GET
+        path:
+          type: string
+          example: /machines/{machine_id}
+        request_count:
+          type: integer
+          minimum: 0
+        error_count:
+          type: integer
+          minimum: 0
+          description: Responses with status 5xx.
+        latency_p95_ms:
+          type: number
+          minimum: 0
+
+    OperationalMetrics:
+      type: object
+      additionalProperties: false
+      required: [started_at, uptime_seconds, requests_total, errors_total, latency_ms]
+      properties:
+        started_at:
+          type: string
+          format: date-time
+        uptime_seconds:
+          type: integer
+          minimum: 0
+        requests_total:
+          type: integer
+          minimum: 0
+        errors_total:
+          type: integer
+          minimum: 0
+          description: Responses with status 5xx.
+        latency_ms:
+          type: object
+          additionalProperties: false
+          required: [p50, p95, p99]
+          properties:
+            p50:
+              type: number
+              minimum: 0
+            p95:
+              type: number
+              minimum: 0
+            p99:
+              type: number
+              minimum: 0
+        endpoints:
+          type: array
+          items:
+            $ref: "#/components/schemas/EndpointMetrics"
+
     Error:
       type: object
       required: [error, message]
@@ -1516,6 +2322,12 @@ components:
             $ref: "#/components/schemas/Error"
     Unauthorized:
       description: Missing, invalid or expired credentials
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Conflict:
+      description: The request conflicts with existing data (for example a duplicate email or document)
       content:
         application/json:
           schema:

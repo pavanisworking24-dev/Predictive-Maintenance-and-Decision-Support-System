@@ -60,6 +60,8 @@ jobs:
             "tests/contracts/test_openapi_surface.py"
             ".env.example"
             "docker-compose.yml"
+            "docker-compose.override.yml"
+            "ruff.toml"
             "scripts/check_db.sh"
           )
 
@@ -72,6 +74,11 @@ jobs:
             fi
             echo "Found: $file"
           done
+
+          if [[ ! -s LICENSE ]]; then
+            echo "::error::LICENSE is missing or empty"
+            exit 1
+          fi
 
       - name: Validate OpenAPI YAML syntax
         run: |
@@ -134,9 +141,9 @@ jobs:
           python -m pip install ruff
 
       - name: Lint Python code
-        # Extend this list as backend/, ml/ and rag/ gain Python code.
+        # Settings are in ruff.toml (notebooks are excluded there).
         run: |
-          ruff check tests
+          ruff check .
 
   database-check:
     name: Docker Compose and Database

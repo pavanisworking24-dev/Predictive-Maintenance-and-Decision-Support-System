@@ -13,8 +13,8 @@ export MSYS_NO_PATHCONV=1
 # Work from the repository root so relative paths are correct.
 cd "$(dirname "$0")/.."
 
-EXPECTED_TABLES=13
-EXPECTED_SEED="1,1,3,1,3,3,1"
+EXPECTED_TABLES=14
+EXPECTED_SEED="1,1,3,1,3,3,1,1"
 SEED_FILE="docs/database/seed-v0.sql"
 ACTIVE_MODEL_INDEX="uq_model_versions_one_active_per_dataset"
 
@@ -77,11 +77,11 @@ vec="$(q "SELECT count(*) FROM pg_extension WHERE extname = 'vector';")" ||
 echo "   OK"
 
 snapshot() {
-  q "SELECT (SELECT count(*) FROM users) || ',' || (SELECT count(*) FROM machines) || ',' || (SELECT count(*) FROM sensor_readings) || ',' || (SELECT count(*) FROM model_versions) || ',' || (SELECT count(*) FROM predictions) || ',' || (SELECT count(*) FROM risk_scores) || ',' || (SELECT count(*) FROM knowledge_documents);"
+  q "SELECT (SELECT count(*) FROM users) || ',' || (SELECT count(*) FROM machines) || ',' || (SELECT count(*) FROM sensor_readings) || ',' || (SELECT count(*) FROM model_versions) || ',' || (SELECT count(*) FROM predictions) || ',' || (SELECT count(*) FROM risk_scores) || ',' || (SELECT count(*) FROM knowledge_documents) || ',' || (SELECT count(*) FROM risk_threshold_configs);"
 }
 
 # --------------------------------------------------
-echo "3. Seed data (users,machines,readings,models,predictions,risks,documents)"
+echo "3. Seed data (users,machines,readings,models,predictions,risks,documents,threshold configs)"
 # --------------------------------------------------
 before="$(snapshot)" || fail "could not query seed counts"
 [[ "$before" == "$EXPECTED_SEED" ]] ||
@@ -128,6 +128,36 @@ if ! step5_output="$(q "$second_active_sql" 2>&1)"; then
   fail "the active-model rule is not enforced as expected. If the index $ACTIVE_MODEL_INDEX is missing, the database was built from an older schema: docker compose down -v && docker compose up -d --wait"
 fi
 echo "   OK (second active model rejected by $ACTIVE_MODEL_INDEX)"
+
+# --------------------------------------------------
+echo "6. Exactly one active risk threshold configuration"
+# --------------------------------------------------
+active_configs="$(q "SELECT count(*) FROM risk_threshold_configs WHERE is_active;")" ||
+  fail "could not query risk_threshold_configs"
+[[ "$active_configs" == "1" ]] ||
+  fail "expected exactly 1 active risk threshold configuration, found $active_configs"
+
+second_active_config_sql="$(cat <<SQL
+DO \$\$
+DECLARE c text;
+BEGIN
+  INSERT INTO risk_threshold_configs
+    (version, horizon_cycles, high_rul_max, medium_rul_max,
+     high_probability_min, medium_probability_min, alert_rul_threshold, is_active)
+  VALUES ('check-second-active', 30, 30, 60, 0.5, 0.2, 20, TRUE);
+  RAISE EXCEPTION 'a second active configuration was accepted';
+EXCEPTION WHEN unique_violation THEN
+  GET STACKED DIAGNOSTICS c = CONSTRAINT_NAME;
+  IF c IS DISTINCT FROM 'uq_risk_threshold_configs_one_active' THEN
+    RAISE EXCEPTION 'rejected by an unexpected constraint: %', c;
+  END IF;
+END \$\$;
+SQL
+)"
+if ! q "$second_active_config_sql" >/dev/null 2>&1; then
+  fail "the one-active-configuration rule is not enforced as expected. Rebuild: docker compose down -v && docker compose up -d --wait"
+fi
+echo "   OK (one active configuration; a second one is rejected)"
 
 echo
 echo "All database checks passed."

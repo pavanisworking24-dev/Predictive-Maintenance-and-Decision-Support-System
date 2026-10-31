@@ -18,6 +18,40 @@ DISCLAIMER = (
 )
 
 
+# Tolerance for rounding when comparing a probability with a coverage level.
+PROBABILITY_TOLERANCE = 0.02
+
+
+def probability_consistency_errors(interval, probability):
+    """Check that P(RUL <= N) agrees with the conformal interval.
+
+    Both numbers come from the same calibration residuals, so they cannot
+    contradict each other:
+    - If N is at or above the interval's upper bound, at least `coverage_level`
+      of the probability mass lies at or below N, so P(RUL <= N) >= coverage.
+    - If N is below the interval's lower bound, at most `1 - coverage_level`
+      of the mass lies at or below N, so P(RUL <= N) <= 1 - coverage.
+    """
+    errors = []
+    threshold = probability["threshold_cycles"]
+    value = probability["probability"]
+    coverage = interval["coverage_level"]
+
+    if threshold >= interval["upper_bound"] and value < coverage - PROBABILITY_TOLERANCE:
+        errors.append(
+            f"P(RUL <= {threshold}) = {value} is too low: the threshold is at or above "
+            f"the interval upper bound ({interval['upper_bound']}), so it should be "
+            f"at least the coverage level ({coverage})"
+        )
+    if threshold < interval["lower_bound"] and value > (1 - coverage) + PROBABILITY_TOLERANCE:
+        errors.append(
+            f"P(RUL <= {threshold}) = {value} is too high: the threshold is below "
+            f"the interval lower bound ({interval['lower_bound']}), so it should be "
+            f"at most {round(1 - coverage, 4)}"
+        )
+    return errors
+
+
 # ---------------------------------------------------------------------------
 # Semantic checks
 #
@@ -45,6 +79,10 @@ def semantic_errors(summary):
                     f"rul.estimate ({estimate}) is outside the interval "
                     f"[{lower}, {upper}]"
                 )
+
+    probability = summary.get("rul_threshold_probability")
+    if interval is not None and probability is not None:
+        errors.extend(probability_consistency_errors(interval, probability))
 
     has_risk = "risk_level" in summary
     has_version = "thresholds_version" in summary
@@ -176,6 +214,35 @@ def test_estimate_outside_interval_is_detected(example):
     errors = semantic_errors(invalid)
 
     assert any("outside the interval" in message for message in errors)
+
+
+def test_probability_below_coverage_is_detected(example):
+    # The original example had RUL 18, interval 14-23 (90%) and P(RUL <= 30) = 0.81,
+    # which is impossible: 30 is above the interval, so the probability must be >= 0.90.
+    invalid = copy_of(example)
+    invalid["rul_threshold_probability"]["probability"] = 0.81
+
+    errors = semantic_errors(invalid)
+
+    assert any("too low" in message for message in errors)
+
+
+def test_probability_above_complement_below_interval_is_detected(example):
+    invalid = copy_of(example)
+    invalid["rul_threshold_probability"]["threshold_cycles"] = 10  # below lower bound 14
+    invalid["rul_threshold_probability"]["probability"] = 0.6
+
+    errors = semantic_errors(invalid)
+
+    assert any("too high" in message for message in errors)
+
+
+def test_probability_inside_interval_range_is_not_constrained(example):
+    valid = copy_of(example)
+    valid["rul_threshold_probability"]["threshold_cycles"] = 20  # inside [14, 23]
+    valid["rul_threshold_probability"]["probability"] = 0.7
+
+    assert semantic_errors(valid) == []
 
 
 def test_risk_level_requires_thresholds_version(example):
