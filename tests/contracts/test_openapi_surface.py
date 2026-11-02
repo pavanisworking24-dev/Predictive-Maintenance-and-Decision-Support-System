@@ -4,6 +4,7 @@ They check that the planned API surface is complete, that authentication and
 role rules are declared, that the document is internally consistent, and that
 its enums match the database CHECK constraints.
 """
+
 import re
 from pathlib import Path
 
@@ -178,13 +179,9 @@ def test_operation_ids_are_unique(openapi):
 def test_path_parameters_are_declared(openapi):
     for method, path, operation in operations(openapi):
         in_path = set(re.findall(r"\{(\w+)\}", path))
-        parameters = openapi["paths"][path].get("parameters", []) + operation.get(
-            "parameters", []
-        )
+        parameters = openapi["paths"][path].get("parameters", []) + operation.get("parameters", [])
         declared = {
-            deref(openapi, p)["name"]
-            for p in parameters
-            if deref(openapi, p)["in"] == "path"
+            deref(openapi, p)["name"] for p in parameters if deref(openapi, p)["in"] == "path"
         }
 
         assert in_path == declared, f"{method} {path}: {in_path} vs {declared}"
@@ -203,9 +200,7 @@ def test_bearer_scheme_and_global_security(openapi):
 
 
 def test_only_login_and_health_are_public(openapi):
-    public = {
-        (method, path) for method, path, op in operations(openapi) if is_public(op)
-    }
+    public = {(method, path) for method, path, op in operations(openapi) if is_public(op)}
 
     assert public == PUBLIC_OPERATIONS
 
@@ -251,12 +246,8 @@ def test_dataset_ids_match_database(openapi, db_sql):
 def test_alert_enums_match_database(openapi, db_sql):
     schemas = openapi["components"]["schemas"]
 
-    assert set(schemas["AlertStatus"]["enum"]) == db_check_values(
-        db_sql, "alerts", "status"
-    )
-    assert set(schemas["RiskLevel"]["enum"]) == db_check_values(
-        db_sql, "alerts", "severity"
-    )
+    assert set(schemas["AlertStatus"]["enum"]) == db_check_values(db_sql, "alerts", "status")
+    assert set(schemas["RiskLevel"]["enum"]) == db_check_values(db_sql, "alerts", "severity")
 
 
 def test_maintenance_status_matches_database(openapi, db_sql):
@@ -272,9 +263,7 @@ def test_alert_update_only_allows_acknowledged_or_resolved(openapi):
 
 
 def test_prediction_id_matches_bigserial(openapi):
-    prediction_id = openapi["components"]["schemas"]["Prediction"]["properties"][
-        "prediction_id"
-    ]
+    prediction_id = openapi["components"]["schemas"]["Prediction"]["properties"]["prediction_id"]
 
     assert prediction_id["type"] == "integer"
     assert prediction_id["format"] == "int64"
@@ -293,9 +282,7 @@ def test_chat_response_requires_disclaimer(openapi):
 def test_ingestion_status_matches_database(openapi, db_sql):
     api_values = set(openapi["components"]["schemas"]["IngestionStatus"]["enum"])
 
-    assert api_values == db_check_values(
-        db_sql, "knowledge_documents", "ingestion_status"
-    )
+    assert api_values == db_check_values(db_sql, "knowledge_documents", "ingestion_status")
 
 
 def test_threshold_config_fields_exist_in_database(openapi, db_sql):

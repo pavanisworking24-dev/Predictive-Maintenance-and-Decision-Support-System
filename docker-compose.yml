@@ -44,5 +44,23 @@ services:
       timeout: 5s
       retries: 10
 
+
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+
+    container_name: predictive-maintenance-backend
+    restart: unless-stopped
+
+    ports:
+      - "127.0.0.1:8001:8000"
+
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      DEBUG: ${DEBUG:-false}
+
+
 volumes:
   postgres_data:
