@@ -69,15 +69,12 @@ def semantic_errors(summary):
         lower = interval["lower_bound"]
         upper = interval["upper_bound"]
         if upper < lower:
-            errors.append(
-                f"interval upper_bound ({upper}) is below lower_bound ({lower})"
-            )
+            errors.append(f"interval upper_bound ({upper}) is below lower_bound ({lower})")
         else:
             estimate = rul["estimate"]
             if not (lower <= estimate <= upper):
                 errors.append(
-                    f"rul.estimate ({estimate}) is outside the interval "
-                    f"[{lower}, {upper}]"
+                    f"rul.estimate ({estimate}) is outside the interval [{lower}, {upper}]"
                 )
 
     probability = summary.get("rul_threshold_probability")
@@ -155,9 +152,7 @@ def db_risk_levels():
 def test_example_is_valid(validator, example):
     errors = sorted(validator.iter_errors(example), key=lambda error: list(error.path))
 
-    assert not errors, "\n".join(
-        f"{list(error.path)}: {error.message}" for error in errors
-    )
+    assert not errors, "\n".join(f"{list(error.path)}: {error.message}" for error in errors)
 
 
 def test_example_passes_semantic_checks(example):
@@ -318,9 +313,9 @@ def test_openapi_and_schema_have_same_top_level_fields(openapi, schema):
 
 def test_risk_levels_match_across_schema_openapi_and_database(openapi, schema):
     schema_levels = schema["properties"]["risk_level"]["enum"]
-    openapi_levels = openapi["components"]["schemas"]["HealthSummary"]["properties"][
-        "risk_level"
-    ]["enum"]
+    openapi_levels = openapi["components"]["schemas"]["HealthSummary"]["properties"]["risk_level"][
+        "enum"
+    ]
 
     assert set(schema_levels) == set(openapi_levels) == set(db_risk_levels())
 
