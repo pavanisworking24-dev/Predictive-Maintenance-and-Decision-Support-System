@@ -1,13 +1,13 @@
+from contextlib import asynccontextmanager
 import logging
 import time
 
-from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 
 from app.api.health import router as health_router
 from app.core.config import settings
-from app.core.logging import setup_logging
 from app.core.exceptions import register_exception_handlers
+from app.core.logging import setup_logging
 
 
 setup_logging()
