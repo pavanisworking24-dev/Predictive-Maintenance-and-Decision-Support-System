@@ -1,11 +1,8 @@
-
+from app.core.exceptions import register_exception_handlers
+from app.main import app
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
-
-from app.main import app
-from app.core.exceptions import register_exception_handlers
-
 
 # Client for testing the actual backend
 client = TestClient(app)
@@ -33,10 +30,7 @@ def error_endpoint():
     raise RuntimeError("This is a test internal error")
 
 
-error_client = TestClient(
-    error_test_app,
-    raise_server_exceptions=False
-)
+error_client = TestClient(error_test_app, raise_server_exceptions=False)
 
 
 # Test 1: Root endpoint
@@ -44,9 +38,7 @@ def test_root_endpoint():
     response = client.get("/")
 
     assert response.status_code == 200
-    assert response.json() == {
-        "message": "Predictive Maintenance Backend is running"
-    }
+    assert response.json() == {"message": "Predictive Maintenance Backend is running"}
 
 
 # Test 2: Health endpoint
@@ -54,10 +46,7 @@ def test_health_endpoint():
     response = client.get("/health")
 
     assert response.status_code == 200
-    assert response.json() == {
-        "status": "healthy",
-        "service": "backend"
-    }
+    assert response.json() == {"status": "healthy", "service": "backend"}
 
 
 # Test 3: Invalid route
@@ -75,10 +64,7 @@ def test_invalid_route():
 
 # Test 4: Validation error
 def test_validation_error():
-    response = error_client.post(
-        "/test-validation",
-        json={}
-    )
+    response = error_client.post("/test-validation", json={})
 
     assert response.status_code == 422
 
