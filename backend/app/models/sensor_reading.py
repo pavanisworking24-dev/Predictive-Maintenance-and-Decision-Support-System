@@ -1,10 +1,10 @@
 
+import uuid
 from datetime import datetime
 from typing import Optional
-import uuid
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Integer, UniqueConstraint, func
 
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     DateTime,
     ForeignKey,

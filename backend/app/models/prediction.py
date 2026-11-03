@@ -1,6 +1,6 @@
 
-from datetime import datetime
 import uuid
+from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,
@@ -14,7 +14,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import DOUBLE_PRECISION, UUID
+from sqlalchemy.dialects.postgresql import DOUBLE_PRECISION
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base

@@ -4,7 +4,6 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 
-
 # Database connection URL from application settings
 DATABASE_URL = settings.DATABASE_URL
 
