@@ -8,6 +8,11 @@ FastAPI backend for the **Predictive Maintenance and Decision Support System**.
 - FastAPI
 - Uvicorn
 - Pydantic Settings
+- SQLAlchemy 2.x
+- PostgreSQL
+- Psycopg 3
+- Alembic
+- pgvector
 - Pytest
 - HTTPX
 - JSON Schema
@@ -17,9 +22,14 @@ FastAPI backend for the **Predictive Maintenance and Decision Support System**.
 
 ```text
 backend/
+├── alembic.ini
 ├── Dockerfile
 ├── requirements.txt
 ├── README.md
+├── migrations/
+│   ├── env.py
+│   ├── README
+│   └── versions/
 ├── app/
 │   ├── api/
 │   │   └── health.py
@@ -27,10 +37,33 @@ backend/
 │   │   ├── config.py
 │   │   ├── exceptions.py
 │   │   └── logging.py
-│   └── main.py
+│   ├── db/
+│   │   ├── base.py
+│   │   └── session.py
+│   ├── models/
+│   │   ├── alert.py
+│   │   ├── chat_message.py
+│   │   ├── chat_session.py
+│   │   ├── explanation.py
+│   │   ├── knowledge_chunk.py
+│   │   ├── knowledge_document.py
+│   │   ├── machine.py
+│   │   ├── maintenance_record.py
+│   │   ├── model_version.py
+│   │   ├── prediction.py
+│   │   ├── risk_score.py
+│   │   ├── risk_threshold_config.py
+│   │   ├── sensor_reading.py
+│   │   └── user.py
+│   ├── main.py
+│   └── tests/
 └── tests/
+    ├── conftest.py
+    ├── test_database.py
     └── test_main.py
 ```
+
+The repository-level `tests/` directory contains project contract tests.
 
 ## 3. Local Setup
 
@@ -38,11 +71,12 @@ backend/
 
 - Python 3.12
 - Git
-- Visual Studio Code
+- Docker Desktop
+- PostgreSQL through Docker Compose
 
 ### Create a virtual environment
 
-Run these commands from the project root:
+Run from the repository root:
 
 ```powershell
 py -3.12 -m venv backend/.venv
@@ -68,14 +102,18 @@ Copy the example environment file:
 Copy-Item .env.example .env
 ```
 
-Configure the application settings in `.env`:
+Configure application settings and database URLs in the root `.env` file.
+
+Example:
 
 ```env
 ENVIRONMENT=development
 DEBUG=false
+DATABASE_URL=postgresql+psycopg://pm_user:YOUR_PASSWORD@127.0.0.1:5433/predictive_maintenance
+TEST_DATABASE_URL=postgresql+psycopg://pm_user:YOUR_PASSWORD@127.0.0.1:5433/predictive_maintenance_test
 ```
 
-Keep your database credentials in `.env`. Never commit this file to Git.
+Use your actual local credentials. Never commit `.env` or database credentials to Git.
 
 Allowed environment values:
 
@@ -83,9 +121,83 @@ Allowed environment values:
 - `testing`
 - `production`
 
-## 5. Run the Backend Locally
+## 5. Database Setup
 
-From the project root:
+Start PostgreSQL:
+
+```powershell
+docker compose up -d postgres
+```
+
+The PostgreSQL service is exposed on host port `5433` and listens internally on port `5432`.
+
+The initial database schema is maintained in:
+
+`docs/database/database-schema-v0.sql`
+
+Optional seed data is maintained in:
+
+`docs/database/seed-v0.sql`
+
+The detailed database setup guide is:
+
+`docs/database/database-setup-documentation.md`
+
+## 6. SQLAlchemy and Database Sessions
+
+Database configuration is maintained in:
+
+- `app/core/config.py`
+- `app/db/base.py`
+- `app/db/session.py`
+
+SQLAlchemy models are maintained in `app/models/`.
+
+The project currently registers 14 application tables in SQLAlchemy metadata.
+
+The application uses `SessionLocal` to create database sessions. The `get_db()` dependency provides request-scoped sessions and closes them after use.
+
+## 7. Database Migrations
+
+Alembic configuration is maintained in:
+
+- `alembic.ini`
+- `migrations/env.py`
+- `migrations/versions/`
+
+Run commands from the repository root.
+
+Check migration status:
+
+```powershell
+python -m alembic -c backend/alembic.ini current
+```
+
+Check model and database metadata differences:
+
+```powershell
+python -m alembic -c backend/alembic.ini check
+```
+
+Generate a migration:
+
+```powershell
+python -m alembic -c backend/alembic.ini revision --autogenerate -m "describe schema change"
+```
+
+Apply migrations:
+
+```powershell
+python -m alembic -c backend/alembic.ini upgrade head
+```
+
+Review every generated migration before applying it.
+
+**Important:** The current baseline migration is empty because the initial schema was created using the SQL schema file. It records the starting migration revision; it does not create the initial database tables.
+
+## 8. Run the Backend Locally
+
+From the repository root:
 
 ```powershell
 uvicorn app.main:app --app-dir backend --reload
@@ -97,7 +209,7 @@ The backend will be available at:
 - Health: http://localhost:8000/health
 - Swagger UI: http://localhost:8000/docs
 
-## 6. Run Using Docker
+## 9. Run Using Docker
 
 Build the backend image:
 
@@ -131,18 +243,24 @@ The Docker backend is available at:
 
 The host port is 8001 because port 8000 is already occupied on the development machine. The container listens internally on port 8000.
 
-Start the full application stack, including PostgreSQL, using:
+Start the full application stack:
 
 ```powershell
 docker compose up -d
 ```
 
-## 7. Run Tests
+## 10. Run Tests
 
-Run backend application tests:
+Run API tests:
 
 ```powershell
 python -m pytest backend/tests/test_main.py -v
+```
+
+Run database integration tests:
+
+```powershell
+python -m pytest backend/tests/test_database.py -v
 ```
 
 Run project contract tests:
@@ -151,13 +269,19 @@ Run project contract tests:
 python -m pytest tests/contracts -v
 ```
 
-Run all tests:
+Run the complete test suite:
 
 ```powershell
 python -m pytest -v
 ```
 
-## 8. Current Backend Features
+Database integration tests use a separate PostgreSQL database configured through `TEST_DATABASE_URL`.
+
+Tests use transaction rollback to isolate database changes.
+
+Never point the test configuration at the development or production database.
+
+## 11. Current Backend Features
 
 - FastAPI application setup
 - Root and health endpoints
@@ -165,14 +289,19 @@ python -m pytest -v
 - HTTP error handling
 - Request validation error handling
 - Unexpected server error handling
-- Environment-based application configuration
-- Automated API tests
+- Environment-based configuration
+- PostgreSQL database connectivity
+- SQLAlchemy ORM integration
+- Fourteen registered database models
+- Database session management
+- Alembic migration configuration
+- Database integration tests
 - Docker support
 
-## 9. Development Status
+## 12. Development Status
 
-The initial backend foundation is implemented.
+The initial backend foundation and database integration layer are implemented.
 
-Database integration, authentication, role-based access control, machine APIs, prediction APIs, alert management, and RAG integration are planned for subsequent backend milestones.
+Subsequent backend work includes authentication, role-based access control, machine APIs, prediction APIs, alert management, ML service integration, and RAG integration.
 
-The current health endpoint does not verify PostgreSQL connectivity.
+The current health endpoint does not independently verify PostgreSQL connectivity.
