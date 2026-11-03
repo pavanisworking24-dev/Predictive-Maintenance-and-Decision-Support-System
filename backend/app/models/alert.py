@@ -1,7 +1,7 @@
 
+import uuid
 from datetime import datetime
 from typing import Optional
-import uuid
 
 from sqlalchemy import (
     BigInteger,
@@ -14,7 +14,6 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base

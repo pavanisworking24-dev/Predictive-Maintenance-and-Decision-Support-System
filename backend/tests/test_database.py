@@ -1,14 +1,11 @@
 import uuid
 
 import pytest
-
-from sqlalchemy import select
-
 from app.models.machine import Machine
-
+from app.models.sensor_reading import SensorReading
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from app.models.sensor_reading import SensorReading
 
 def test_database_connection(db_session):
     from sqlalchemy import text

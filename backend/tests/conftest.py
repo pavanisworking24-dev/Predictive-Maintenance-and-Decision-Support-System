@@ -1,11 +1,10 @@
-import os
+
+from pathlib import Path
 
 import pytest
 from dotenv import dotenv_values
-from pathlib import Path
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
-
 
 # Load the dedicated test database URL.
 env_values = dotenv_values(Path(__file__).resolve().parents[2] / ".env")

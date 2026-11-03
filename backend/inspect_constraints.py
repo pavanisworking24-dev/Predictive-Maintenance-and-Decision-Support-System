@@ -1,7 +1,6 @@
 
-from sqlalchemy import inspect
-
 from app.db.session import engine
+from sqlalchemy import inspect
 
 
 def main():

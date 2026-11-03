@@ -1,7 +1,6 @@
 
-from sqlalchemy import inspect, text
-
 from app.db.session import engine
+from sqlalchemy import inspect, text
 
 
 def inspect_tables():
