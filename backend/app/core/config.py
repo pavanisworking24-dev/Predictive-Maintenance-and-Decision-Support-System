@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     DEBUG: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    DATABASE_URL: str = "postgresql+psycopg://pm_user:pm_password@127.0.0.1:5433/predictive_maintenance"
 
 
 settings = Settings()
