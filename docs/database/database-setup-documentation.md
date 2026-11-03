@@ -710,6 +710,197 @@ The SQL files in `/docker-entrypoint-initdb.d` run only when the data volume is 
 - [ ] Verification queries execute successfully.
 - [ ] Team members have confirmed their local connection settings.
 
+## 14. SQLAlchemy ORM Integration
+
+The backend uses SQLAlchemy 2.x as its Object-Relational Mapping (ORM) layer to interact with PostgreSQL.
+
+SQLAlchemy models represent the application's database tables and are maintained in:
+
+`backend/app/models/`
+
+The declarative base is defined in:
+
+`backend/app/db/base.py`
+
+All model modules are imported through `backend/app/models/__init__.py` so their table definitions are registered in `Base.metadata`.
+
+The project currently contains 14 application models:
+
+| Model | Database table |
+|---|---|
+| User | `users` |
+| Machine | `machines` |
+| SensorReading | `sensor_readings` |
+| ModelVersion | `model_versions` |
+| Prediction | `predictions` |
+| RiskThresholdConfig | `risk_threshold_configs` |
+| RiskScore | `risk_scores` |
+| Alert | `alerts` |
+| MaintenanceRecord | `maintenance_records` |
+| ChatSession | `chat_sessions` |
+| ChatMessage | `chat_messages` |
+| KnowledgeDocument | `knowledge_documents` |
+| Explanation | `explanations` |
+| KnowledgeChunk | `knowledge_chunks` |
+
+PostgreSQL-specific data types include JSONB and pgvector. Knowledge embeddings use a vector dimension of 384.
+
+## 15. Database Connection and Session Management
+
+Database configuration is maintained in:
+
+- `backend/app/core/config.py`
+- `backend/app/db/session.py`
+
+The application reads its database connection URL from the `DATABASE_URL` environment variable.
+
+Example configuration (use your actual local environment settings):
+
+```env
+DATABASE_URL=postgresql+psycopg://pm_user:YOUR_PASSWORD@127.0.0.1:5433/predictive_maintenance
+```
+
+Do not commit actual database credentials to Git.
+
+The database engine is created using SQLAlchemy with connection health checks enabled through `pool_pre_ping=True`.
+
+The application uses `SessionLocal` as its session factory.
+
+The `get_db()` dependency creates a database session for a request and closes it when the request finishes.
+
+Database sessions use:
+
+- `autocommit=False`
+- `autoflush=False`
+- `expire_on_commit=False`
+
+## 16. Alembic Database Migrations
+
+Alembic manages version-controlled database schema changes.
+
+Configuration files:
+
+- `backend/alembic.ini`
+- `backend/migrations/env.py`
+- `backend/migrations/versions/`
+
+The Alembic environment imports the SQLAlchemy models and uses `Base.metadata` for schema comparison.
+
+Type and server-default comparisons are enabled.
+
+### 16.1 Current baseline
+
+The current baseline revision is:
+
+`40d44a4746d7_baseline_database_schema.py`
+
+This baseline is intentionally empty because the initial database schema was already created using:
+
+`docs/database/database-schema-v0.sql`
+
+Therefore, the SQL schema file remains the initial database bootstrap source. The empty Alembic baseline records the migration starting point for an already initialized database; it does not create all 14 tables on a fresh database.
+
+### 16.2 Common Alembic commands
+
+Run commands from the repository root.
+
+Check the current migration revision:
+
+```powershell
+python -m alembic -c backend/alembic.ini current
+```
+
+Display migration history:
+
+```powershell
+python -m alembic -c backend/alembic.ini history
+```
+
+Check whether model changes require a migration:
+
+```powershell
+python -m alembic -c backend/alembic.ini check
+```
+
+Generate a migration after changing SQLAlchemy models:
+
+```powershell
+python -m alembic -c backend/alembic.ini revision --autogenerate -m "describe schema change"
+```
+
+Review the generated migration before applying it.
+
+Apply pending migrations:
+
+```powershell
+python -m alembic -c backend/alembic.ini upgrade head
+```
+
+Roll back one migration:
+
+```powershell
+python -m alembic -c backend/alembic.ini downgrade -1
+```
+
+Do not run migrations against production without reviewing the generated SQL and preparing an appropriate database backup.
+
+## 17. Database Integration Testing
+
+Database integration tests are located in:
+
+`backend/tests/test_database.py`
+
+Shared database fixtures are configured in:
+
+`backend/tests/conftest.py`
+
+The test suite uses a separate PostgreSQL database named:
+
+`predictive_maintenance_test`
+
+Configure its connection through `TEST_DATABASE_URL` in the root `.env` file.
+
+Example:
+
+```env
+TEST_DATABASE_URL=postgresql+psycopg://pm_user:YOUR_PASSWORD@127.0.0.1:5433/predictive_maintenance_test
+```
+
+The test database must be initialized separately using the SQL schema:
+
+```powershell
+cmd /c "docker compose exec -T postgres psql -U pm_user -d predictive_maintenance_test < ..\docs\database\database-schema-v0.sql"
+```
+
+The test configuration validates the target database name before running tests to reduce the risk of modifying the development database.
+
+Each integration test runs inside a database transaction. The transaction is rolled back after the test, preventing test records from persisting between tests.
+
+Run database integration tests:
+
+```powershell
+python -m pytest backend/tests/test_database.py -v
+```
+
+Run the complete project test suite:
+
+```powershell
+python -m pytest -v
+```
+
+At the completion of B2.7, the database integration test suite contained 25 passing tests and the complete project suite contained 73 passing tests.
+
+## 18. Database Development Guidelines
+
+1. Update the SQLAlchemy model when introducing a schema change.
+2. Generate and review an Alembic migration for the change.
+3. Keep the initial SQL schema and subsequent migration history consistent.
+4. Add integration tests for constraints, relationships, and database behavior.
+5. Use the dedicated test database for integration testing.
+6. Never run destructive test operations against the development or production database.
+7. Never commit `.env` files or database credentials.
+8. Verify database metadata and migration state after schema changes.
+
 ---
 
 **Primary source of truth:** `docs/database/database-schema-v0.sql` and `docs/database/seed-v0.sql` in the project repository. If this document and the SQL files ever differ, follow the current SQL files and update this documentation.
