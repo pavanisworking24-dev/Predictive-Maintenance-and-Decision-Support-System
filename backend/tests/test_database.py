@@ -1,15 +1,15 @@
 import uuid
 
 import pytest
+from app.models.alert import Alert
 from app.models.machine import Machine
-from app.models.sensor_reading import SensorReading
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from app.models.model_version import ModelVersion
 from app.models.prediction import Prediction
 from app.models.risk_score import RiskScore
 from app.models.risk_threshold_config import RiskThresholdConfig
-from app.models.alert import Alert
+from app.models.sensor_reading import SensorReading
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 
 def test_database_connection(db_session):
