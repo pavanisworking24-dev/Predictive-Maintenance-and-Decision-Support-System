@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 
 from app.api.health import router as health_router
+from app.api.v1 import api_router as api_v1_router
 from app.core.config import settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import setup_logging
@@ -34,6 +35,7 @@ register_exception_handlers(app)
 
 
 app.include_router(health_router)
+app.include_router(api_v1_router, prefix=settings.API_V1_PREFIX)
 
 
 @app.middleware("http")

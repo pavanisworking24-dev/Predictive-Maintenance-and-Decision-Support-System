@@ -305,3 +305,31 @@ The initial backend foundation and database integration layer are implemented.
 Subsequent backend work includes authentication, role-based access control, machine APIs, prediction APIs, alert management, ML service integration, and RAG integration.
 
 The current health endpoint does not independently verify PostgreSQL connectivity.
+## Authentication and RBAC (B3)
+
+Endpoints (prefix `/api/v1`):
+
+| Method | Path | Access |
+| --- | --- | --- |
+| POST | `/auth/register` | Public. Always creates a `MAINTENANCE_ENGINEER`. |
+| POST | `/auth/login` | Public. Returns `{access_token, token_type: "bearer"}`. |
+| POST | `/auth/logout` | Any authenticated user (stateless; client drops the token). |
+| GET | `/users` | `ADMIN` |
+| PATCH | `/users/{user_id}/role` | `ADMIN` |
+
+Settings (environment variables): `JWT_SECRET_KEY` (required when
+`ENVIRONMENT=production`), `JWT_ALGORITHM` (default `HS256`),
+`ACCESS_TOKEN_EXPIRE_MINUTES` (default `720`).
+
+### Demo accounts
+
+```bash
+cd backend
+export PROGNEX_SEED_ADMIN_PASSWORD=...      # min. 10 characters each
+export PROGNEX_SEED_MANAGER_PASSWORD=...
+export PROGNEX_SEED_ENGINEER_PASSWORD=...
+python -m app.db.seed                       # or omit the exports and enter them when prompted
+```
+
+Creates `admin@prognex.com`, `manager@prognex.com` and `engineer@prognex.com`
+if missing; existing accounts are never modified.
