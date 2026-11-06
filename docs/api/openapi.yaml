@@ -11,8 +11,10 @@ info:
     decision support. This contract describes the planned API and does
     not imply that every endpoint is implemented.
 
-    Authentication: every endpoint except POST /auth/login and GET /health
-    requires a JWT bearer token. Role-restricted operations list their
+    Authentication: every endpoint except POST /auth/login,
+    POST /auth/register and GET /health requires a JWT bearer token.
+    Public self-registration always creates a MAINTENANCE_ENGINEER; only an
+    ADMIN can change a user's role (PATCH /users/{user_id}/role). Role-restricted operations list their
     allowed roles in the x-allowed-roles extension and return 403 for other
     roles; operations without it are open to all authenticated roles
     (ADMIN, MAINTENANCE_MANAGER, MAINTENANCE_ENGINEER).
@@ -44,7 +46,7 @@ tags:
   - name: Health Summary
     description: Combined machine health and decision-support information
   - name: Authentication
-    description: Login and access tokens
+    description: Registration, login, logout and access tokens
   - name: Risk
     description: Fleet risk view
   - name: Explanation
@@ -315,6 +317,57 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "422":
           $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /auth/register:
+    post:
+      tags: [Authentication]
+      summary: Self-register a new account
+      operationId: register
+      description: >
+        Public self-registration. The role cannot be chosen by the client:
+        every new account is created as MAINTENANCE_ENGINEER. An ADMIN can
+        promote it later with PATCH /users/{user_id}/role. Returns 400 when
+        the email is already registered.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserRegister"
+      responses:
+        "201":
+          description: Account created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /auth/logout:
+    post:
+      tags: [Authentication]
+      summary: Log out
+      operationId: logout
+      description: >
+        Stateless logout. Tokens are not stored server-side; the client
+        discards its token. Requires a valid bearer token.
+      responses:
+        "200":
+          description: Logout acknowledged
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/InternalServerError"
 
@@ -794,57 +847,33 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "500":
           $ref: "#/components/responses/InternalServerError"
-    post:
-      tags: [Administration]
-      summary: Create a user
-      operationId: createUser
-      x-allowed-roles: [ADMIN]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/UserCreate"
-      responses:
-        "201":
-          description: User created
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/User"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "409":
-          $ref: "#/components/responses/Conflict"
-        "422":
-          $ref: "#/components/responses/ValidationError"
-        "500":
-          $ref: "#/components/responses/InternalServerError"
 
-  /users/{user_id}:
+  /users/{user_id}/role:
     parameters:
       - $ref: "#/components/parameters/UserId"
     patch:
       tags: [Administration]
-      summary: Update a user (role, active flag, name or password)
-      operationId: updateUser
-      description: Deactivate a user with is_active=false instead of deleting the account.
+      summary: Change a user's role
+      operationId: updateUserRole
+      description: >
+        Sets the role of an existing user. Administrators cannot remove
+        their own ADMIN role (400).
       x-allowed-roles: [ADMIN]
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/UserUpdate"
+              $ref: "#/components/schemas/UserRoleUpdate"
       responses:
         "200":
-          description: User updated
+          description: Role updated
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1461,19 +1490,15 @@ components:
     TokenResponse:
       type: object
       additionalProperties: false
-      required: [access_token, token_type, expires_in, role]
+      required: [access_token, token_type]
+      description: >
+        The JWT carries the claims sub (user id), role, iat and exp.
       properties:
         access_token:
           type: string
         token_type:
           type: string
           enum: [bearer]
-        expires_in:
-          type: integer
-          minimum: 1
-          description: Token lifetime in seconds.
-        role:
-          $ref: "#/components/schemas/UserRole"
 
     RiskSummaryItem:
       type: object
@@ -1860,9 +1885,9 @@ components:
     User:
       type: object
       additionalProperties: false
-      required: [user_id, name, email, role, is_active, created_at]
+      required: [id, name, email, role, is_active]
       properties:
-        user_id:
+        id:
           type: string
           format: uuid
         name:
@@ -1875,19 +1900,13 @@ components:
           $ref: "#/components/schemas/UserRole"
         is_active:
           type: boolean
-        created_at:
-          type: string
-          format: date-time
 
-    UserCreate:
+    UserRegister:
       type: object
       additionalProperties: false
-      required: [name, email, password, role]
+      description: The role is not accepted; it is always MAINTENANCE_ENGINEER.
+      required: [email, password, name]
       properties:
-        name:
-          type: string
-          minLength: 1
-          maxLength: 100
         email:
           type: string
           format: email
@@ -1895,26 +1914,27 @@ components:
           type: string
           format: password
           minLength: 10
-        role:
-          $ref: "#/components/schemas/UserRole"
-
-    UserUpdate:
-      type: object
-      additionalProperties: false
-      minProperties: 1
-      properties:
+          maxLength: 128
         name:
           type: string
           minLength: 1
           maxLength: 100
+
+    UserRoleUpdate:
+      type: object
+      additionalProperties: false
+      required: [role]
+      properties:
         role:
           $ref: "#/components/schemas/UserRole"
-        is_active:
-          type: boolean
-        password:
+
+    MessageResponse:
+      type: object
+      additionalProperties: false
+      required: [message]
+      properties:
+        message:
           type: string
-          format: password
-          minLength: 10
 
     UserListResponse:
       type: object

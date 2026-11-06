@@ -23,6 +23,8 @@ ALL_ROLES = {"ADMIN", "MAINTENANCE_MANAGER", "MAINTENANCE_ENGINEER"}
 # contract. Paths follow docs/api/openapi.yaml.
 EXPECTED_OPERATIONS = {
     ("POST", "/auth/login"),
+    ("POST", "/auth/register"),
+    ("POST", "/auth/logout"),
     ("GET", "/health"),
     ("GET", "/machines"),
     ("GET", "/machines/{machine_id}"),
@@ -45,8 +47,7 @@ EXPECTED_OPERATIONS = {
     ("GET", "/thresholds"),
     ("POST", "/thresholds"),
     ("GET", "/users"),
-    ("POST", "/users"),
-    ("PATCH", "/users/{user_id}"),
+    ("PATCH", "/users/{user_id}/role"),
     ("GET", "/models"),
     ("POST", "/models/{model_version_id}/activate"),
     ("GET", "/knowledge/documents"),
@@ -54,7 +55,7 @@ EXPECTED_OPERATIONS = {
     ("DELETE", "/knowledge/documents/{document_id}"),
 }
 
-PUBLIC_OPERATIONS = {("POST", "/auth/login"), ("GET", "/health")}
+PUBLIC_OPERATIONS = {("POST", "/auth/login"), ("POST", "/auth/register"), ("GET", "/health")}
 
 # Permission matrix, scope section 5.1
 RESTRICTED_OPERATIONS = {
@@ -64,8 +65,7 @@ RESTRICTED_OPERATIONS = {
     # Administration: users, thresholds, model version, knowledge base (scope 5.1)
     ("POST", "/thresholds"): {"ADMIN"},
     ("GET", "/users"): {"ADMIN"},
-    ("POST", "/users"): {"ADMIN"},
-    ("PATCH", "/users/{user_id}"): {"ADMIN"},
+    ("PATCH", "/users/{user_id}/role"): {"ADMIN"},
     ("GET", "/models"): {"ADMIN"},
     ("POST", "/models/{model_version_id}/activate"): {"ADMIN"},
     ("GET", "/knowledge/documents"): {"ADMIN"},
@@ -199,7 +199,7 @@ def test_bearer_scheme_and_global_security(openapi):
     assert openapi["security"] == [{"bearerAuth": []}]
 
 
-def test_only_login_and_health_are_public(openapi):
+def test_only_login_register_and_health_are_public(openapi):
     public = {(method, path) for method, path, op in operations(openapi) if is_public(op)}
 
     assert public == PUBLIC_OPERATIONS
@@ -329,3 +329,37 @@ def test_every_role_can_read_thresholds_and_fleet_report(openapi):
 def test_risk_threshold_table_has_single_active_index(db_sql):
     assert "uq_risk_threshold_configs_one_active" in db_sql
     assert "REFERENCES risk_threshold_configs(version)" in db_sql
+
+
+# ---------------------------------------------------------------------------
+# B3 authentication scope
+# ---------------------------------------------------------------------------
+def test_superseded_user_endpoints_are_removed(openapi):
+    defined = {(method, path) for method, path, _ in operations(openapi)}
+
+    assert ("POST", "/users") not in defined
+    assert ("PATCH", "/users/{user_id}") not in defined
+
+
+def test_register_cannot_set_role(openapi):
+    register = openapi["components"]["schemas"]["UserRegister"]
+
+    assert set(register["required"]) == {"email", "password", "name"}
+    assert "role" not in register["properties"]
+    assert register["additionalProperties"] is False
+
+
+def test_role_update_only_accepts_role(openapi):
+    update = openapi["components"]["schemas"]["UserRoleUpdate"]
+
+    assert set(update["properties"]) == {"role"}
+    assert update["properties"]["role"] == {"$ref": "#/components/schemas/UserRole"}
+
+
+def test_user_and_token_schemas_match_backend(openapi):
+    schemas = openapi["components"]["schemas"]
+
+    assert set(schemas["User"]["properties"]) == {"id", "name", "email", "role", "is_active"}
+    assert set(schemas["TokenResponse"]["properties"]) == {"access_token", "token_type"}
+
+
