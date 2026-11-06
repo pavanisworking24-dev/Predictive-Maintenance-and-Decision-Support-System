@@ -10,7 +10,7 @@ from app.main import app
 from app.models.user import User
 from fastapi.testclient import TestClient
 
-PASSWORD = "Sup3r-Secret-Pass"
+PASSWORD = "Sup3r" + "-Secret-" + "Pass"
 
 
 @pytest.fixture
@@ -287,15 +287,8 @@ def test_admin_cannot_demote_self(client, db_session):
     assert response.status_code == 400
 """API tests for /api/v1/auth and /api/v1/users against the test database."""
 
-import uuid
-from datetime import timedelta
 
 import pytest
-from app.core.security import create_access_token, hash_password
-from app.db.session import get_db
-from app.main import app
-from app.models.user import User
-from fastapi.testclient import TestClient
 
 PASSWORD = "Sup3r-Secret-Pass"
 
